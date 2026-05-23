@@ -15,27 +15,27 @@ const faqs = [
   },
   {
     q: "How long does it take to generate clips?",
-    a: "For a typical 1-2 hour stream or podcast, ClipViral generates 10-20 clips in under 10 minutes. Processing time depends on video length and your plan's rendering priority.",
+    a: "For a typical 1-2 hour stream or podcast, ClipViral generates 10-20 clips in under 10 minutes. Processing is fast with priority rendering for all users.",
   },
   {
     q: "Can I customize the generated clips?",
-    a: "Absolutely! You can customize captions styles, zoom effects, transitions, hooks, thumbnails, music, and more. You can also manually trim and adjust any AI-generated clip before publishing.",
+    a: "Absolutely! You can customize caption styles, zoom effects, transitions, hooks, thumbnails, music, and more. You can also manually trim and adjust any AI-generated clip before publishing.",
   },
   {
-    q: "Is there a free plan?",
-    a: "Yes! The Starter plan is free forever and includes 10 clips per month with basic AI features. Upgrade to Pro for unlimited features and priority processing.",
+    q: "Is ClipViral really free?",
+    a: "Yes! ClipViral is 100% free with no limits. You get unlimited clips, 4K exports, all AI features, unlimited social accounts, team collaboration, and everything else — no credit card required, no hidden fees.",
   },
   {
     q: "Does ClipViral auto-post to my social accounts?",
-    a: "Yes, with Pro and Enterprise plans you can connect your TikTok, Instagram, YouTube, and Facebook accounts for one-click or scheduled auto-publishing.",
+    a: "Yes! You can connect your TikTok, Instagram, YouTube, and Facebook accounts for one-click or scheduled auto-publishing. All users get full access to auto-posting.",
   },
   {
     q: "What video quality are the exported clips?",
-    a: "Free plan exports at 720p, Pro at 1080p, and Enterprise at up to 4K. All exports are optimized for each platform's requirements.",
+    a: "All clips export at up to 4K quality, optimized for each platform's requirements. You always get the best quality possible.",
   },
   {
     q: "Can my team collaborate on ClipViral?",
-    a: "Enterprise plans include team collaboration features with roles for editors, managers, and creators. Everyone can review, edit, and approve clips before publishing.",
+    a: "Yes! ClipViral includes team collaboration features with roles for editors, managers, and creators. Everyone can review, edit, and approve clips before publishing.",
   },
 ];
 

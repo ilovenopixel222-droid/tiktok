@@ -149,47 +149,38 @@ export default function SettingsPage() {
             {activeTab === "billing" && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
                 <Card>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-xl bg-gradient-to-br from-primary to-secondary p-2.5">
-                        <Crown className="h-5 w-5 text-white" />
-                      </div>
-                      <div>
-                        <h2 className="text-base font-semibold">Free Plan</h2>
-                        <p className="text-xs text-muted">Upgrade to unlock more features</p>
-                      </div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="rounded-xl bg-gradient-to-br from-primary to-secondary p-2.5">
+                      <Crown className="h-5 w-5 text-white" />
                     </div>
-                    <Button variant="outline" size="sm">Upgrade Plan</Button>
+                    <div>
+                      <h2 className="text-base font-semibold">Unlimited Access</h2>
+                      <p className="text-xs text-muted">All features included — 100% free</p>
+                    </div>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl bg-white/[0.02] p-3 text-center">
-                      <p className="text-2xl font-bold">0<span className="text-sm font-normal text-muted">/10</span></p>
-                      <p className="text-xs text-muted">Clips this month</p>
+                      <p className="text-2xl font-bold">Unlimited</p>
+                      <p className="text-xs text-muted">Clips per month</p>
                     </div>
                     <div className="rounded-xl bg-white/[0.02] p-3 text-center">
-                      <p className="text-2xl font-bold">0</p>
+                      <p className="text-2xl font-bold">Unlimited</p>
                       <p className="text-xs text-muted">Social accounts</p>
                     </div>
                     <div className="rounded-xl bg-white/[0.02] p-3 text-center">
-                      <p className="text-2xl font-bold">720p</p>
+                      <p className="text-2xl font-bold">4K</p>
                       <p className="text-xs text-muted">Max quality</p>
                     </div>
                   </div>
                 </Card>
 
                 <Card>
-                  <h2 className="text-base font-semibold mb-4">Payment Method</h2>
-                  <div className="flex flex-col items-center justify-center py-6 text-center">
-                    <CreditCard className="h-8 w-8 text-muted mb-2" />
-                    <p className="text-sm text-muted">No payment method on file</p>
-                    <Button variant="secondary" size="sm" className="mt-3">Add Payment Method</Button>
-                  </div>
-                </Card>
-
-                <Card>
-                  <h2 className="text-base font-semibold mb-4">Billing History</h2>
-                  <div className="flex items-center justify-center py-6 text-sm text-muted">
-                    No billing history
+                  <h2 className="text-base font-semibold mb-4">Your Plan</h2>
+                  <div className="flex items-center justify-center py-6 text-center">
+                    <div>
+                      <p className="text-sm text-muted">ClipViral is free for everyone — no billing required.</p>
+                      <p className="mt-1 text-xs text-muted/60">All features are unlocked with no usage limits.</p>
+                    </div>
                   </div>
                 </Card>
               </motion.div>

@@ -26,7 +26,7 @@ export function CTA() {
           </h2>
           <p className="mx-auto mt-6 max-w-xl text-lg text-muted">
             Join 50,000+ creators who are growing their audience with AI-powered clips.
-            Start free — no credit card required.
+            100% free — every feature, no limits, no credit card.
           </p>
           <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
             <Link href="/signup">
@@ -37,11 +37,11 @@ export function CTA() {
               </Button>
             </Link>
             <Button variant="glass" size="xl">
-              Talk to Sales
+              Watch Demo
             </Button>
           </div>
           <p className="mt-6 text-sm text-muted/60">
-            Free forever plan available · No credit card required · Cancel anytime
+            100% free forever · No credit card · Unlimited clips · All features included
           </p>
         </motion.div>
       </div>

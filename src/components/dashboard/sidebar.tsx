@@ -83,12 +83,9 @@ export function Sidebar() {
           <div className="mb-3 mx-1 rounded-xl bg-gradient-to-r from-primary/10 to-secondary/10 border border-primary/20 p-3">
             <div className="flex items-center gap-2 text-xs font-semibold text-primary-light">
               <Crown className="h-3.5 w-3.5" />
-              Free Plan
+              Unlimited Access
             </div>
-            <p className="mt-1 text-[10px] text-muted">0 clips used this month</p>
-            <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
-              <div className="h-full w-0 rounded-full bg-gradient-to-r from-primary to-secondary" />
-            </div>
+            <p className="mt-1 text-[10px] text-muted">All features unlocked</p>
           </div>
         )}
         {bottomNav.map((item) => {
