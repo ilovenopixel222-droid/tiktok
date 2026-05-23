@@ -23,14 +23,28 @@ interface Video {
   status: string;
 }
 
+function loadStoredVideos(): Video[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = localStorage.getItem("clipviral_videos");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
 export default function LibraryPage() {
-  const [videos, setVideos] = useState<Video[]>([]);
+  const [videos, setVideos] = useState<Video[]>(loadStoredVideos);
 
   useEffect(() => {
+    if (videos.length > 0) return;
+    // Fallback: try API (works in non-serverless environments)
     fetch("/api/videos").then(r => r.json()).then(data => {
       if (data.videos) setVideos(data.videos);
     }).catch(() => {});
-  }, []);
+  }, [videos.length]);
 
   const totalClips = videos.reduce((a, v) => a + (v.clips || 0), 0);
 

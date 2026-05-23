@@ -237,11 +237,14 @@ export async function POST(request: NextRequest) {
       status: `Complete! ${moments.length} clips generated.`,
     });
 
+    const generatedClips = store.getClipsByVideo(videoId);
+
     return Response.json({
       videoId,
       jobId,
       status: "complete",
       clipsGenerated: moments.length,
+      clips: generatedClips,
       message: `Processing complete. ${moments.length} clips generated.`,
     });
   } catch (error) {

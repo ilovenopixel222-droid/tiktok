@@ -194,6 +194,22 @@ export default function UploadPage() {
 
       const data = JSON.parse(await res.text());
 
+      // Replace clips in localStorage so dashboard shows latest results
+      if (data.clips && Array.isArray(data.clips)) {
+        localStorage.setItem("clipviral_clips", JSON.stringify(data.clips));
+      }
+      // Replace video record
+      if (data.videoId) {
+        localStorage.setItem("clipviral_videos", JSON.stringify([{
+          id: data.videoId,
+          title: processTitle,
+          source: mode === "link" ? "URL" : "Upload",
+          clips: data.clipsGenerated || 0,
+          date: new Date().toISOString().split("T")[0],
+          status: "processed",
+        }]));
+      }
+
       setProgress(100);
       setSteps((prev) => prev.map((s) => ({ ...s, done: true })));
       setComplete(true);

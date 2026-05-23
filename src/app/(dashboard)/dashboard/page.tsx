@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Scissors, Eye, TrendingUp, Zap, ArrowUpRight, Play,
@@ -42,28 +42,43 @@ function getStatusBadge(status: string) {
   }
 }
 
+function loadStoredClips(): Clip[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = localStorage.getItem("clipviral_clips");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+function computeStats(clipsData: Clip[]) {
+  return {
+    totalClips: clipsData.length,
+    totalViews: clipsData.reduce((a, c) => a + (c.views || 0), 0),
+    avgViralScore: clipsData.length > 0
+      ? Math.round(clipsData.reduce((a, c) => a + (c.viralScore || 0), 0) / clipsData.length)
+      : 0,
+    thisMonth: clipsData.length,
+  };
+}
+
 export default function DashboardPage() {
-  const [clips, setClips] = useState<Clip[]>([]);
-  const [jobs, setJobs] = useState<ProcessingJob[]>([]);
-  const [stats, setStats] = useState({ totalClips: 0, totalViews: 0, avgViralScore: 0, thisMonth: 0 });
+  const [clips, setClips] = useState<Clip[]>(loadStoredClips);
+  const [jobs] = useState<ProcessingJob[]>([]);
+  const stats = useMemo(() => computeStats(clips), [clips]);
 
   useEffect(() => {
+    if (clips.length > 0) return;
+    // Fallback: try API
     fetch("/api/clips").then(r => r.json()).then(data => {
       if (data.clips && data.clips.length > 0) {
         setClips(data.clips);
-        setStats({
-          totalClips: data.clips.length,
-          totalViews: data.clips.reduce((a: number, c: Clip) => a + (c.views || 0), 0),
-          avgViralScore: Math.round(data.clips.reduce((a: number, c: Clip) => a + (c.viralScore || 0), 0) / data.clips.length),
-          thisMonth: data.clips.length,
-        });
       }
     }).catch(() => {});
-
-    fetch("/api/jobs").then(r => r.json()).then(data => {
-      if (data.jobs) setJobs(data.jobs);
-    }).catch(() => {});
-  }, []);
+  }, [clips.length]);
 
   const statCards = [
     { label: "Total Clips", value: stats.totalClips, icon: Scissors, color: "from-purple-500 to-violet-600" },

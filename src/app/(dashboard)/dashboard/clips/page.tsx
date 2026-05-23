@@ -46,16 +46,30 @@ function getStatusBadge(status: string) {
   }
 }
 
+function loadStoredClips(): Clip[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = localStorage.getItem("clipviral_clips");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
 export default function ClipsPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [filterStatus, setFilterStatus] = useState("all");
-  const [clips, setClips] = useState<Clip[]>([]);
+  const [clips, setClips] = useState<Clip[]>(loadStoredClips);
 
   useEffect(() => {
+    if (clips.length > 0) return;
+    // Fallback: try API (works in non-serverless environments)
     fetch("/api/clips").then(r => r.json()).then(data => {
       if (data.clips) setClips(data.clips);
     }).catch(() => {});
-  }, []);
+  }, [clips.length]);
 
   const filtered = filterStatus === "all" ? clips : clips.filter((c) => c.status === filterStatus);
   const publishedCount = clips.filter(c => c.status === "published").length;
