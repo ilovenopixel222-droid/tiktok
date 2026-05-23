@@ -83,11 +83,11 @@ export function Sidebar() {
           <div className="mb-3 mx-1 rounded-xl bg-gradient-to-r from-primary/10 to-secondary/10 border border-primary/20 p-3">
             <div className="flex items-center gap-2 text-xs font-semibold text-primary-light">
               <Crown className="h-3.5 w-3.5" />
-              Pro Plan
+              Free Plan
             </div>
-            <p className="mt-1 text-[10px] text-muted">73/100 clips used this month</p>
+            <p className="mt-1 text-[10px] text-muted">0 clips used this month</p>
             <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
-              <div className="h-full w-[73%] rounded-full bg-gradient-to-r from-primary to-secondary" />
+              <div className="h-full w-0 rounded-full bg-gradient-to-r from-primary to-secondary" />
             </div>
           </div>
         )}
@@ -118,12 +118,12 @@ export function Sidebar() {
       <div className="border-t border-white/5 px-3 py-3">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-sm font-bold text-white">
-            IC
+            ?
           </div>
           {sidebarOpen && (
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium">Isaac Creator</div>
-              <div className="truncate text-xs text-muted">isaac@clipviral.ai</div>
+              <div className="truncate text-sm font-medium">Guest User</div>
+              <div className="truncate text-xs text-muted">Set up your profile</div>
             </div>
           )}
           {sidebarOpen && (

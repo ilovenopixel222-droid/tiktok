@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   User, Mail, Lock, CreditCard, Bell, Palette, Globe2,
-  Shield, Key, Users, Crown, Check, ArrowRight, LogOut
+  Shield, Key, Users, Crown, Check, ArrowRight
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,12 +28,6 @@ const captionPresets = [
   { name: "Classic Subtitles", preview: "Standard bottom subtitles", active: false },
   { name: "Minimal", preview: "Small, clean text overlay", active: false },
   { name: "Bold Impact", preview: "Large impact font, center screen", active: false },
-];
-
-const teamMembers = [
-  { name: "Isaac Creator", email: "isaac@clipviral.ai", role: "Owner", avatar: "IC" },
-  { name: "Sarah Editor", email: "sarah@team.com", role: "Editor", avatar: "SE" },
-  { name: "Mike Manager", email: "mike@team.com", role: "Manager", avatar: "MM" },
 ];
 
 const notificationSettings = [
@@ -85,21 +79,20 @@ export default function SettingsPage() {
                   <h2 className="text-base font-semibold mb-4">Profile Information</h2>
                   <div className="flex items-center gap-4 mb-6">
                     <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-xl font-bold text-white">
-                      IC
+                      ?
                     </div>
                     <div>
-                      <p className="text-sm font-semibold">Isaac Creator</p>
-                      <p className="text-xs text-muted">isaac@clipviral.ai</p>
+                      <p className="text-sm font-semibold text-muted">Set up your profile</p>
                       <Button variant="ghost" size="sm" className="mt-1 text-xs text-primary-light">
-                        Change avatar
+                        Upload avatar
                       </Button>
                     </div>
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <Input label="Full Name" defaultValue="Isaac Creator" icon={<User className="h-4 w-4" />} />
-                    <Input label="Email" defaultValue="isaac@clipviral.ai" icon={<Mail className="h-4 w-4" />} />
-                    <Input label="Username" defaultValue="@isaaccreator" icon={<Globe2 className="h-4 w-4" />} />
-                    <Input label="Creator Niche" defaultValue="Gaming & Lifestyle" />
+                    <Input label="Full Name" placeholder="Your name" icon={<User className="h-4 w-4" />} />
+                    <Input label="Email" placeholder="your@email.com" icon={<Mail className="h-4 w-4" />} />
+                    <Input label="Username" placeholder="@username" icon={<Globe2 className="h-4 w-4" />} />
+                    <Input label="Creator Niche" placeholder="e.g. Gaming, Lifestyle" />
                   </div>
                   <div className="mt-4 flex justify-end">
                     <Button size="sm">Save Changes</Button>
@@ -162,23 +155,23 @@ export default function SettingsPage() {
                         <Crown className="h-5 w-5 text-white" />
                       </div>
                       <div>
-                        <h2 className="text-base font-semibold">Pro Plan</h2>
-                        <p className="text-xs text-muted">$29/month · Renews June 22, 2026</p>
+                        <h2 className="text-base font-semibold">Free Plan</h2>
+                        <p className="text-xs text-muted">Upgrade to unlock more features</p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm">Manage Plan</Button>
+                    <Button variant="outline" size="sm">Upgrade Plan</Button>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl bg-white/[0.02] p-3 text-center">
-                      <p className="text-2xl font-bold">73<span className="text-sm font-normal text-muted">/100</span></p>
+                      <p className="text-2xl font-bold">0<span className="text-sm font-normal text-muted">/10</span></p>
                       <p className="text-xs text-muted">Clips this month</p>
                     </div>
                     <div className="rounded-xl bg-white/[0.02] p-3 text-center">
-                      <p className="text-2xl font-bold">5</p>
+                      <p className="text-2xl font-bold">0</p>
                       <p className="text-xs text-muted">Social accounts</p>
                     </div>
                     <div className="rounded-xl bg-white/[0.02] p-3 text-center">
-                      <p className="text-2xl font-bold">1080p</p>
+                      <p className="text-2xl font-bold">720p</p>
                       <p className="text-xs text-muted">Max quality</p>
                     </div>
                   </div>
@@ -186,31 +179,17 @@ export default function SettingsPage() {
 
                 <Card>
                   <h2 className="text-base font-semibold mb-4">Payment Method</h2>
-                  <div className="flex items-center gap-3 rounded-xl bg-white/[0.02] p-3">
-                    <CreditCard className="h-5 w-5 text-muted" />
-                    <div>
-                      <p className="text-sm font-medium">Visa ending in 4242</p>
-                      <p className="text-xs text-muted">Expires 12/2027</p>
-                    </div>
-                    <Button variant="ghost" size="sm" className="ml-auto text-xs">Update</Button>
+                  <div className="flex flex-col items-center justify-center py-6 text-center">
+                    <CreditCard className="h-8 w-8 text-muted mb-2" />
+                    <p className="text-sm text-muted">No payment method on file</p>
+                    <Button variant="secondary" size="sm" className="mt-3">Add Payment Method</Button>
                   </div>
                 </Card>
 
                 <Card>
                   <h2 className="text-base font-semibold mb-4">Billing History</h2>
-                  <div className="space-y-2">
-                    {["May 22, 2026", "Apr 22, 2026", "Mar 22, 2026"].map((date) => (
-                      <div key={date} className="flex items-center justify-between rounded-lg bg-white/[0.02] p-3">
-                        <div>
-                          <p className="text-sm font-medium">Pro Plan - Monthly</p>
-                          <p className="text-xs text-muted">{date}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-medium">$29.00</span>
-                          <Badge variant="success">Paid</Badge>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="flex items-center justify-center py-6 text-sm text-muted">
+                    No billing history
                   </div>
                 </Card>
               </motion.div>
@@ -301,20 +280,8 @@ export default function SettingsPage() {
                 </Card>
                 <Card>
                   <h2 className="text-base font-semibold mb-4">Active Sessions</h2>
-                  <div className="space-y-2">
-                    {["Chrome on macOS — Current session", "Safari on iPhone — 2 hours ago"].map((session, i) => (
-                      <div key={i} className="flex items-center justify-between rounded-lg bg-white/[0.02] p-3">
-                        <span className="text-sm">{session}</span>
-                        {i === 0 ? (
-                          <Badge variant="success">Active</Badge>
-                        ) : (
-                          <Button variant="ghost" size="sm" className="text-xs text-accent">
-                            <LogOut className="h-3 w-3" />
-                            Revoke
-                          </Button>
-                        )}
-                      </div>
-                    ))}
+                  <div className="flex items-center justify-center py-6 text-sm text-muted">
+                    Session management will be available when authentication is set up
                   </div>
                 </Card>
               </motion.div>
@@ -330,19 +297,10 @@ export default function SettingsPage() {
                       Invite Member
                     </Button>
                   </div>
-                  <div className="space-y-2">
-                    {teamMembers.map((member) => (
-                      <div key={member.email} className="flex items-center gap-3 rounded-xl bg-white/[0.02] p-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-primary/40 to-secondary/40 text-sm font-bold">
-                          {member.avatar}
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">{member.name}</p>
-                          <p className="text-xs text-muted">{member.email}</p>
-                        </div>
-                        <Badge variant={member.role === "Owner" ? "primary" : "outline"}>{member.role}</Badge>
-                      </div>
-                    ))}
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <Users className="h-8 w-8 text-muted mb-2" />
+                    <p className="text-sm text-muted">No team members yet</p>
+                    <p className="mt-1 text-xs text-muted/60">Invite editors and managers to collaborate on your content.</p>
                   </div>
                 </Card>
               </motion.div>
@@ -355,16 +313,10 @@ export default function SettingsPage() {
                   <p className="text-sm text-muted mb-4">
                     Use API keys to integrate ClipViral with your own applications, webhooks, and automation workflows.
                   </p>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between rounded-lg bg-white/[0.02] p-3">
-                      <div>
-                        <p className="text-sm font-medium font-mono">cv_live_sk_...x8f2</p>
-                        <p className="text-xs text-muted">Created May 10, 2026 · Last used 2 hours ago</p>
-                      </div>
-                      <Button variant="ghost" size="sm" className="text-xs text-accent">Revoke</Button>
-                    </div>
+                  <div className="flex items-center justify-center py-6 text-sm text-muted">
+                    No API keys generated yet
                   </div>
-                  <Button variant="secondary" size="sm" className="mt-4">
+                  <Button variant="secondary" size="sm" className="mt-2">
                     <Key className="h-3.5 w-3.5" />
                     Generate New Key
                   </Button>

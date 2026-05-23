@@ -1,4 +1,7 @@
 import { NextRequest } from "next/server";
+import { writeFile, mkdir } from "fs/promises";
+import { join } from "path";
+import { store } from "@/lib/store";
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -34,15 +37,42 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const upload = {
-    id: `upload_${Date.now()}`,
+  // Save file to uploads directory
+  const uploadsDir = join(process.cwd(), "uploads");
+  await mkdir(uploadsDir, { recursive: true });
+
+  const filename = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+  const filePath = join(uploadsDir, filename);
+  const bytes = await file.arrayBuffer();
+  await writeFile(filePath, Buffer.from(bytes));
+
+  const videoId = `vid_${Date.now()}`;
+
+  // Store video record
+  store.addVideo({
+    id: videoId,
+    title: file.name.replace(/\.[^/.]+$/, ""),
+    source: "Upload",
+    duration: "Processing...",
+    size: formatFileSize(file.size),
+    clips: 0,
+    date: new Date().toISOString().split("T")[0],
+    status: "queued",
+    filePath,
+  });
+
+  return Response.json({
+    videoId,
     filename: file.name,
     size: file.size,
-    type: file.type,
+    filePath: `/uploads/${filename}`,
     status: "uploaded",
-    url: `/uploads/${file.name}`,
-    created_at: new Date().toISOString(),
-  };
+  }, { status: 201 });
+}
 
-  return Response.json({ upload }, { status: 201 });
+function formatFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
 }

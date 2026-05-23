@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Link2, Upload, Sparkles, ArrowRight, PlayCircle, MonitorPlay,
   Monitor, Radio, FileVideo, CheckCircle2, Loader2, Settings2,
-  Wand2, Brain, Clock
+  Wand2, Brain, Clock, AlertCircle, X
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,27 +34,178 @@ const momentTypes = [
   "Stream Fails", "High-Energy", "Rage Reactions", "Podcast Highlights",
 ];
 
+interface ProcessingStep {
+  label: string;
+  done: boolean;
+}
+
 export default function UploadPage() {
   const [mode, setMode] = useState<"link" | "upload">("link");
   const [url, setUrl] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState(0);
   const [processing, setProcessing] = useState(false);
-  const [step, setStep] = useState(0);
+  const [steps, setSteps] = useState<ProcessingStep[]>([]);
   const [selectedMoments, setSelectedMoments] = useState<string[]>(momentTypes.slice(0, 8));
   const [showAdvanced, setShowAdvanced] = useState(false);
-
-  const handleProcess = () => {
-    setProcessing(true);
-    setStep(1);
-    setTimeout(() => setStep(2), 2000);
-    setTimeout(() => setStep(3), 4000);
-    setTimeout(() => setStep(4), 6000);
-  };
+  const [error, setError] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [, setJobId] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const toggleMoment = (m: string) => {
     setSelectedMoments((prev) =>
       prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]
     );
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      setError(null);
+    }
+  };
+
+  const pollJob = useCallback((jid: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+
+    pollingRef.current = setInterval(async () => {
+      try {
+        const res = await fetch("/api/jobs");
+        const data = await res.json();
+        const job = data.jobs?.find((j: { id: string }) => j.id === jid);
+
+        if (job) {
+          setProgress(job.progress);
+
+          const newSteps: ProcessingStep[] = [
+            { label: "Submitting video for processing", done: job.progress >= 10 },
+            { label: "Transcribing audio with AssemblyAI", done: job.progress >= 20 },
+            { label: "AI analyzing for viral moments", done: job.progress >= 65 },
+            { label: `Generating clips (${job.clipsFound} found)`, done: job.progress >= 80 },
+            { label: "Finalizing clips", done: job.progress >= 100 },
+          ];
+          setSteps(newSteps);
+
+          if (job.progress >= 100) {
+            if (pollingRef.current) clearInterval(pollingRef.current);
+          }
+
+          if (job.status.startsWith("Error:")) {
+            setError(job.status);
+            if (pollingRef.current) clearInterval(pollingRef.current);
+          }
+        }
+      } catch {
+        // Silently retry
+      }
+    }, 2000);
+  }, []);
+
+  const handleProcess = async () => {
+    setError(null);
+    setProcessing(true);
+    setSteps([
+      { label: "Submitting video for processing", done: false },
+      { label: "Transcribing audio with AssemblyAI", done: false },
+      { label: "AI analyzing for viral moments", done: false },
+      { label: "Generating clips", done: false },
+      { label: "Finalizing clips", done: false },
+    ]);
+    setProgress(0);
+
+    try {
+      if (mode === "link") {
+        if (!url.trim()) {
+          setError("Please enter a video URL");
+          setProcessing(false);
+          return;
+        }
+
+        const res = await fetch("/api/process-video", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videoUrl: url,
+            title: `${platforms[selectedPlatform].name} Video`,
+            momentTypes: selectedMoments,
+            clipLength: clipSettings[0].options[clipSettings[0].default],
+            captionStyle: clipSettings[1].options[clipSettings[1].default],
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || "Failed to start processing");
+        }
+
+        const data = await res.json();
+        setJobId(data.jobId);
+        pollJob(data.jobId);
+      } else {
+        if (!selectedFile) {
+          setError("Please select a file");
+          setProcessing(false);
+          return;
+        }
+
+        // Upload file first
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+
+        const uploadRes = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!uploadRes.ok) {
+          const errData = await uploadRes.json();
+          throw new Error(errData.error || "Upload failed");
+        }
+
+        const uploadData = await uploadRes.json();
+
+        // Then process it
+        const appUrl = window.location.origin;
+        const res = await fetch("/api/process-video", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videoUrl: `${appUrl}${uploadData.filePath}`,
+            videoId: uploadData.videoId,
+            title: selectedFile.name.replace(/\.[^/.]+$/, ""),
+            momentTypes: selectedMoments,
+            clipLength: clipSettings[0].options[clipSettings[0].default],
+            captionStyle: clipSettings[1].options[clipSettings[1].default],
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || "Failed to start processing");
+        }
+
+        const data = await res.json();
+        setJobId(data.jobId);
+        pollJob(data.jobId);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+      setProcessing(false);
+    }
+  };
+
+  const resetForm = () => {
+    setProcessing(false);
+    setSteps([]);
+    setError(null);
+    setJobId(null);
+    setProgress(0);
+    setUrl("");
+    setSelectedFile(null);
+    if (pollingRef.current) clearInterval(pollingRef.current);
   };
 
   return (
@@ -65,7 +216,7 @@ export default function UploadPage() {
         <div className="flex gap-2">
           <Button
             variant={mode === "link" ? "primary" : "secondary"}
-            onClick={() => setMode("link")}
+            onClick={() => { setMode("link"); setError(null); }}
             className="flex-1"
           >
             <Link2 className="h-4 w-4" />
@@ -73,13 +224,23 @@ export default function UploadPage() {
           </Button>
           <Button
             variant={mode === "upload" ? "primary" : "secondary"}
-            onClick={() => setMode("upload")}
+            onClick={() => { setMode("upload"); setError(null); }}
             className="flex-1"
           >
             <Upload className="h-4 w-4" />
             Upload File
           </Button>
         </div>
+
+        {error && (
+          <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+            <AlertCircle className="h-5 w-5 text-red-400 shrink-0" />
+            <p className="text-sm text-red-300 flex-1">{error}</p>
+            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         <AnimatePresence mode="wait">
           {mode === "link" ? (
@@ -132,19 +293,43 @@ export default function UploadPage() {
               exit={{ opacity: 0, y: -10 }}
             >
               <Card>
-                <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/10 p-12 text-center hover:border-primary/30 transition-colors cursor-pointer">
-                  <div className="rounded-2xl bg-primary/10 p-4 mb-4">
-                    <FileVideo className="h-10 w-10 text-primary-light" />
-                  </div>
-                  <h3 className="text-base font-semibold">Drop your video here</h3>
-                  <p className="mt-2 text-sm text-muted">
-                    or click to browse. Supports MP4, MOV, AVI, MKV, WEBM, MP3, WAV
-                  </p>
-                  <p className="mt-1 text-xs text-muted/60">Max file size: 10GB</p>
-                  <Button variant="secondary" size="sm" className="mt-4">
-                    <Upload className="h-4 w-4" />
-                    Choose File
-                  </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="video/*,audio/*"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/10 p-12 text-center hover:border-primary/30 transition-colors cursor-pointer"
+                >
+                  {selectedFile ? (
+                    <>
+                      <div className="rounded-2xl bg-success/10 p-4 mb-4">
+                        <CheckCircle2 className="h-10 w-10 text-success" />
+                      </div>
+                      <h3 className="text-base font-semibold">{selectedFile.name}</h3>
+                      <p className="mt-2 text-sm text-muted">
+                        {(selectedFile.size / (1024 * 1024)).toFixed(1)} MB · Click to change file
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="rounded-2xl bg-primary/10 p-4 mb-4">
+                        <FileVideo className="h-10 w-10 text-primary-light" />
+                      </div>
+                      <h3 className="text-base font-semibold">Drop your video here</h3>
+                      <p className="mt-2 text-sm text-muted">
+                        or click to browse. Supports MP4, MOV, AVI, MKV, WEBM, MP3, WAV
+                      </p>
+                      <p className="mt-1 text-xs text-muted/60">Max file size: 10GB</p>
+                      <Button variant="secondary" size="sm" className="mt-4">
+                        <Upload className="h-4 w-4" />
+                        Choose File
+                      </Button>
+                    </>
+                  )}
                 </div>
               </Card>
             </motion.div>
@@ -290,17 +475,16 @@ export default function UploadPage() {
           <Card glow>
             <div className="text-center">
               <div className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-primary-light">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                AI Processing Your Content
+                {progress >= 100 ? (
+                  <CheckCircle2 className="h-4 w-4 text-success" />
+                ) : (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+                {progress >= 100 ? "Processing Complete!" : "AI Processing Your Content"}
               </div>
 
               <div className="space-y-3">
-                {[
-                  { label: "Downloading video", done: step >= 1 },
-                  { label: "Transcribing audio & detecting speakers", done: step >= 2 },
-                  { label: "AI analyzing for viral moments", done: step >= 3 },
-                  { label: "Generating clips with effects", done: step >= 4 },
-                ].map((s, i) => (
+                {steps.map((s, i) => (
                   <div key={i} className="flex items-center gap-3 text-sm">
                     {s.done ? (
                       <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
@@ -318,14 +502,29 @@ export default function UploadPage() {
               <div className="mt-6 h-2 rounded-full bg-white/10 overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
-                  animate={{ width: `${step * 25}%` }}
+                  animate={{ width: `${progress}%` }}
                   className="h-full rounded-full bg-gradient-to-r from-primary to-secondary"
                 />
               </div>
-              <div className="mt-2 flex items-center justify-center gap-2 text-xs text-muted">
-                <Clock className="h-3 w-3" />
-                Estimated time remaining: {Math.max(0, 8 - step * 2)} minutes
-              </div>
+
+              {progress >= 100 ? (
+                <div className="mt-4 flex gap-3 justify-center">
+                  <a href="/dashboard/clips">
+                    <Button size="sm">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      View Generated Clips
+                    </Button>
+                  </a>
+                  <Button variant="secondary" size="sm" onClick={resetForm}>
+                    Process Another Video
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-2 flex items-center justify-center gap-2 text-xs text-muted">
+                  <Clock className="h-3 w-3" />
+                  Processing... This may take a few minutes depending on video length.
+                </div>
+              )}
             </div>
           </Card>
         )}

@@ -1,29 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Play, Eye, Clock, Sparkles, MoreVertical, Download, Share2,
   Trash2, Edit3, Filter, SortDesc, Grid3X3, List, Search,
-  TrendingUp, ExternalLink
+  Upload, FileVideo
 } from "lucide-react";
+import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Topbar } from "@/components/dashboard/topbar";
 import { formatNumber, getViralScoreColor } from "@/lib/utils";
 
-const clips = [
-  { id: "1", title: "When chat said I couldn't do it 😂", viralScore: 95, views: 458000, likes: 34200, comments: 1840, status: "published", platform: "TikTok", duration: "0:47", moment: "Funny", date: "2026-05-22", thumbnail: "gradient-1" },
-  { id: "2", title: "This reaction was INSANE", viralScore: 91, views: 312000, likes: 28100, comments: 2100, status: "published", platform: "Reels", duration: "0:34", moment: "Shocking", date: "2026-05-21", thumbnail: "gradient-2" },
-  { id: "3", title: "The most emotional moment on stream", viralScore: 88, views: 0, likes: 0, comments: 0, status: "ready", platform: "Shorts", duration: "0:52", moment: "Emotional", date: "2026-05-21", thumbnail: "gradient-3" },
-  { id: "4", title: "Hot take: this game is overrated", viralScore: 82, views: 0, likes: 0, comments: 0, status: "processing", platform: "TikTok", duration: "0:41", moment: "Controversial", date: "2026-05-20", thumbnail: "gradient-4" },
-  { id: "5", title: "The debate got heated real quick", viralScore: 79, views: 189000, likes: 15300, comments: 3200, status: "published", platform: "Reels", duration: "0:58", moment: "Argument", date: "2026-05-20", thumbnail: "gradient-5" },
-  { id: "6", title: "Chat went CRAZY when this happened", viralScore: 93, views: 521000, likes: 42000, comments: 2800, status: "published", platform: "TikTok", duration: "0:39", moment: "Chat Reaction", date: "2026-05-19", thumbnail: "gradient-6" },
-  { id: "7", title: "The motivational speech nobody expected", viralScore: 86, views: 0, likes: 0, comments: 0, status: "scheduled", platform: "Shorts", duration: "0:55", moment: "Motivational", date: "2026-05-19", thumbnail: "gradient-7" },
-  { id: "8", title: "Stream fail compilation #12", viralScore: 77, views: 98000, likes: 8400, comments: 920, status: "published", platform: "TikTok", duration: "0:44", moment: "Stream Fail", date: "2026-05-18", thumbnail: "gradient-8" },
-  { id: "9", title: "This story had everyone in tears", viralScore: 90, views: 0, likes: 0, comments: 0, status: "draft", platform: "Reels", duration: "0:48", moment: "Storytelling", date: "2026-05-18", thumbnail: "gradient-9" },
-];
+interface Clip {
+  id: string;
+  title: string;
+  viralScore: number;
+  views: number;
+  likes: number;
+  comments: number;
+  status: string;
+  platform: string;
+  duration: string;
+  moment: string;
+  date: string;
+  thumbnail: string;
+}
 
 const gradients = [
   "from-purple-600 to-blue-600", "from-pink-600 to-red-600", "from-cyan-600 to-blue-600",
@@ -45,12 +49,20 @@ function getStatusBadge(status: string) {
 export default function ClipsPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [clips, setClips] = useState<Clip[]>([]);
+
+  useEffect(() => {
+    fetch("/api/clips").then(r => r.json()).then(data => {
+      if (data.clips) setClips(data.clips);
+    }).catch(() => {});
+  }, []);
 
   const filtered = filterStatus === "all" ? clips : clips.filter((c) => c.status === filterStatus);
+  const publishedCount = clips.filter(c => c.status === "published").length;
 
   return (
     <>
-      <Topbar title="My Clips" subtitle={`${clips.length} clips total · ${clips.filter(c => c.status === "published").length} published`} />
+      <Topbar title="My Clips" subtitle={clips.length > 0 ? `${clips.length} clips total · ${publishedCount} published` : "No clips yet"} />
       <div className="p-6 space-y-6">
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3">
@@ -101,8 +113,25 @@ export default function ClipsPage() {
           </div>
         </div>
 
-        {/* Clips Grid */}
-        {viewMode === "grid" ? (
+        {clips.length === 0 ? (
+          <Card>
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="rounded-2xl bg-primary/10 p-5 mb-4">
+                <FileVideo className="h-10 w-10 text-primary-light" />
+              </div>
+              <h3 className="text-lg font-semibold">No clips yet</h3>
+              <p className="mt-2 text-sm text-muted max-w-md">
+                Upload a video or paste a link to start generating viral short-form clips with AI.
+              </p>
+              <Link href="/dashboard/upload" className="mt-6">
+                <Button size="sm">
+                  <Upload className="h-4 w-4" />
+                  Create Your First Clip
+                </Button>
+              </Link>
+            </div>
+          </Card>
+        ) : viewMode === "grid" ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.map((clip, i) => (
               <motion.div
@@ -176,25 +205,24 @@ export default function ClipsPage() {
                       <span>{clip.platform}</span>
                       <span>{clip.date}</span>
                       <span>{clip.duration}</span>
-                      <Badge className="text-[10px]">{clip.moment}</Badge>
+                      {clip.views > 0 && (
+                        <span className="flex items-center gap-1">
+                          <Eye className="h-3 w-3" />
+                          {formatNumber(clip.views)}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  <div className="hidden md:flex items-center gap-4">
-                    {clip.views > 0 && (
-                      <div className="text-right">
-                        <div className="text-sm font-medium">{formatNumber(clip.views)}</div>
-                        <div className="text-[10px] text-muted">views</div>
-                      </div>
-                    )}
+                  <div className="hidden sm:flex items-center gap-3">
                     <div className={`flex items-center gap-1 text-sm font-bold ${getViralScoreColor(clip.viralScore)}`}>
-                      <TrendingUp className="h-3 w-3" />
+                      <Sparkles className="h-3 w-3" />
                       {clip.viralScore}%
                     </div>
                     {getStatusBadge(clip.status)}
                   </div>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="sm" className="text-muted"><Download className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="sm" className="text-muted"><ExternalLink className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="sm" className="text-muted"><Share2 className="h-3.5 w-3.5" /></Button>
                     <Button variant="ghost" size="sm" className="text-muted"><Trash2 className="h-3.5 w-3.5" /></Button>
                   </div>
                 </div>
