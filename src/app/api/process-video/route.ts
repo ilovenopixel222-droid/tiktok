@@ -1,37 +1,40 @@
 import { NextRequest } from "next/server";
 import { store } from "@/lib/store";
-import ytdl from "@distube/ytdl-core";
+import { execFile } from "child_process";
+import { promisify } from "util";
 
 export const maxDuration = 300;
 
-function isYouTubeUrl(url: string): boolean {
-  return /(?:youtube\.com|youtu\.be)/i.test(url);
-}
+const execFileAsync = promisify(execFile);
 
 function isPlatformUrl(url: string): boolean {
   return /(?:youtube\.com|youtu\.be|twitch\.tv|kick\.com|rumble\.com)/i.test(url);
 }
 
 async function getDirectAudioUrl(videoUrl: string): Promise<string> {
-  if (isYouTubeUrl(videoUrl)) {
-    try {
-      const info = await ytdl.getInfo(videoUrl);
-      const audioFormat = ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" });
-      if (audioFormat?.url) {
-        return audioFormat.url;
-      }
-    } catch (e) {
-      console.error("ytdl-core failed, falling back to upload method:", e);
-    }
-  }
-
   if (isPlatformUrl(videoUrl)) {
+    try {
+      const { stdout } = await execFileAsync("yt-dlp", [
+        "--get-url",
+        "--format", "bestaudio/best",
+        "--no-warnings",
+        "--no-check-certificates",
+        videoUrl,
+      ], { timeout: 30000 });
+
+      const directUrl = stdout.trim().split("\n")[0];
+      if (directUrl && directUrl.startsWith("http")) {
+        return directUrl;
+      }
+    } catch {
+      // yt-dlp not available or failed
+    }
+
     throw new Error(
-      "Could not extract audio from this URL. For best results, download the video first and upload the file directly using the Upload tab."
+      "Could not extract audio from this URL. YouTube and other platforms may block server-side downloads. Please download the video and upload the file directly using the Upload tab."
     );
   }
 
-  // For direct media URLs, upload to AssemblyAI first to verify it's accessible
   const headRes = await fetch(videoUrl, { method: "HEAD" }).catch(() => null);
   if (headRes) {
     const contentType = headRes.headers.get("content-type") || "";

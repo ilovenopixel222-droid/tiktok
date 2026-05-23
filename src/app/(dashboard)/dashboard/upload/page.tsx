@@ -149,7 +149,7 @@ export default function UploadPage() {
         }
 
         const uploadData = await uploadRes.json();
-        processUrl = `${window.location.origin}${uploadData.filePath}`;
+        processUrl = uploadData.uploadUrl;
         processTitle = selectedFile.name.replace(/\.[^/.]+$/, "");
       }
 
