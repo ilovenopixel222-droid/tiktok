@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         audio_url: videoUrl,
-        speech_model: "universal-2",
+        speech_models: ["universal-2"],
         speaker_labels: true,
         sentiment_analysis: true,
         auto_highlights: true,
