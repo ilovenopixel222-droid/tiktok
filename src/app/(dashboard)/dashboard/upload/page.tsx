@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Link2, Upload, Sparkles, ArrowRight, PlayCircle, MonitorPlay,
@@ -44,15 +44,16 @@ export default function UploadPage() {
   const [url, setUrl] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState(0);
   const [processing, setProcessing] = useState(false);
+  const [complete, setComplete] = useState(false);
+  const [clipsGenerated, setClipsGenerated] = useState(0);
   const [steps, setSteps] = useState<ProcessingStep[]>([]);
   const [selectedMoments, setSelectedMoments] = useState<string[]>(momentTypes.slice(0, 8));
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const toggleMoment = (m: string) => {
     setSelectedMoments((prev) =>
@@ -68,45 +69,41 @@ export default function UploadPage() {
     }
   };
 
-  const pollJob = useCallback((jid: string) => {
-    if (pollingRef.current) clearInterval(pollingRef.current);
+  const startProgressSimulation = useCallback(() => {
+    if (progressRef.current) clearInterval(progressRef.current);
+    let currentProgress = 5;
+    const stepTimings = [
+      { at: 5, step: 0 },
+      { at: 15, step: 1 },
+      { at: 35, step: 2 },
+      { at: 60, step: 3 },
+    ];
 
-    pollingRef.current = setInterval(async () => {
-      try {
-        const res = await fetch("/api/jobs");
-        const data = await res.json();
-        const job = data.jobs?.find((j: { id: string }) => j.id === jid);
+    progressRef.current = setInterval(() => {
+      if (currentProgress < 85) {
+        currentProgress += currentProgress < 20 ? 2 : currentProgress < 50 ? 1 : 0.5;
+        currentProgress = Math.min(currentProgress, 85);
+        setProgress(Math.round(currentProgress));
 
-        if (job) {
-          setProgress(job.progress);
-
-          const newSteps: ProcessingStep[] = [
-            { label: "Submitting video for processing", done: job.progress >= 10 },
-            { label: "Transcribing audio with AssemblyAI", done: job.progress >= 20 },
-            { label: "AI analyzing for viral moments", done: job.progress >= 65 },
-            { label: `Generating clips (${job.clipsFound} found)`, done: job.progress >= 80 },
-            { label: "Finalizing clips", done: job.progress >= 100 },
-          ];
-          setSteps(newSteps);
-
-          if (job.progress >= 100) {
-            if (pollingRef.current) clearInterval(pollingRef.current);
-          }
-
-          if (job.status.startsWith("Error:")) {
-            setError(job.status);
-            if (pollingRef.current) clearInterval(pollingRef.current);
-          }
+        const currentStep = [...stepTimings].reverse().find((s) => currentProgress >= s.at);
+        if (currentStep) {
+          setSteps((prev) => prev.map((s, i) => ({ ...s, done: i <= currentStep.step })));
         }
-      } catch {
-        // Silently retry
       }
-    }, 2000);
+    }, 1500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (progressRef.current) clearInterval(progressRef.current);
+    };
   }, []);
 
   const handleProcess = async () => {
     setError(null);
     setProcessing(true);
+    setComplete(false);
+    setClipsGenerated(0);
     setSteps([
       { label: "Submitting video for processing", done: false },
       { label: "Transcribing audio with AssemblyAI", done: false },
@@ -114,44 +111,30 @@ export default function UploadPage() {
       { label: "Generating clips", done: false },
       { label: "Finalizing clips", done: false },
     ]);
-    setProgress(0);
+    setProgress(5);
+    startProgressSimulation();
 
     try {
+      let processUrl = "";
+      let processTitle = "";
+
       if (mode === "link") {
         if (!url.trim()) {
           setError("Please enter a video URL");
           setProcessing(false);
+          if (progressRef.current) clearInterval(progressRef.current);
           return;
         }
-
-        const res = await fetch("/api/process-video", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            videoUrl: url,
-            title: `${platforms[selectedPlatform].name} Video`,
-            momentTypes: selectedMoments,
-            clipLength: clipSettings[0].options[clipSettings[0].default],
-            captionStyle: clipSettings[1].options[clipSettings[1].default],
-          }),
-        });
-
-        if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.error || "Failed to start processing");
-        }
-
-        const data = await res.json();
-        setJobId(data.jobId);
-        pollJob(data.jobId);
+        processUrl = url;
+        processTitle = `${platforms[selectedPlatform].name} Video`;
       } else {
         if (!selectedFile) {
           setError("Please select a file");
           setProcessing(false);
+          if (progressRef.current) clearInterval(progressRef.current);
           return;
         }
 
-        // Upload file first
         const formData = new FormData();
         formData.append("file", selectedFile);
 
@@ -166,32 +149,36 @@ export default function UploadPage() {
         }
 
         const uploadData = await uploadRes.json();
-
-        // Then process it
-        const appUrl = window.location.origin;
-        const res = await fetch("/api/process-video", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            videoUrl: `${appUrl}${uploadData.filePath}`,
-            videoId: uploadData.videoId,
-            title: selectedFile.name.replace(/\.[^/.]+$/, ""),
-            momentTypes: selectedMoments,
-            clipLength: clipSettings[0].options[clipSettings[0].default],
-            captionStyle: clipSettings[1].options[clipSettings[1].default],
-          }),
-        });
-
-        if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.error || "Failed to start processing");
-        }
-
-        const data = await res.json();
-        setJobId(data.jobId);
-        pollJob(data.jobId);
+        processUrl = `${window.location.origin}${uploadData.filePath}`;
+        processTitle = selectedFile.name.replace(/\.[^/.]+$/, "");
       }
+
+      const res = await fetch("/api/process-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoUrl: processUrl,
+          title: processTitle,
+          momentTypes: selectedMoments,
+          clipLength: clipSettings[0].options[clipSettings[0].default],
+        }),
+      });
+
+      if (progressRef.current) clearInterval(progressRef.current);
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Processing failed");
+      }
+
+      const data = await res.json();
+
+      setProgress(100);
+      setSteps((prev) => prev.map((s) => ({ ...s, done: true })));
+      setComplete(true);
+      setClipsGenerated(data.clipsGenerated || 0);
     } catch (err) {
+      if (progressRef.current) clearInterval(progressRef.current);
       setError(err instanceof Error ? err.message : "An error occurred");
       setProcessing(false);
     }
@@ -199,13 +186,14 @@ export default function UploadPage() {
 
   const resetForm = () => {
     setProcessing(false);
+    setComplete(false);
+    setClipsGenerated(0);
     setSteps([]);
     setError(null);
-    setJobId(null);
     setProgress(0);
     setUrl("");
     setSelectedFile(null);
-    if (pollingRef.current) clearInterval(pollingRef.current);
+    if (progressRef.current) clearInterval(progressRef.current);
   };
 
   return (
@@ -480,7 +468,7 @@ export default function UploadPage() {
                 ) : (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 )}
-                {progress >= 100 ? "Processing Complete!" : "AI Processing Your Content"}
+                {complete ? `Processing Complete! ${clipsGenerated} clips generated` : "AI Processing Your Content"}
               </div>
 
               <div className="space-y-3">

@@ -59,6 +59,7 @@ async function submitTranscription(audioUrl: string, apiKey: string): Promise<st
     },
     body: JSON.stringify({
       audio_url: audioUrl,
+      speech_model: "universal-2",
       speaker_labels: true,
       sentiment_analysis: true,
       content_safety: true,

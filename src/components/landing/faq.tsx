@@ -7,7 +7,7 @@ import { ChevronDown } from "lucide-react";
 const faqs = [
   {
     q: "What platforms does ClipViral support?",
-    a: "ClipViral supports YouTube, Twitch, Kick, Rumble, and direct video uploads. You can auto-publish clips to TikTok, Instagram Reels, YouTube Shorts, and Facebook Reels.",
+    a: "ClipViral supports YouTube, Twitch, Kick, Rumble, and direct video uploads. Generated clips are auto-published directly to your TikTok account.",
   },
   {
     q: "How does the AI detect viral moments?",
@@ -27,7 +27,7 @@ const faqs = [
   },
   {
     q: "Does ClipViral auto-post to my social accounts?",
-    a: "Yes! You can connect your TikTok, Instagram, YouTube, and Facebook accounts for one-click or scheduled auto-publishing. All users get full access to auto-posting.",
+    a: "Yes! Connect your TikTok account for one-click or scheduled auto-publishing. All users get full access to auto-posting.",
   },
   {
     q: "What video quality are the exported clips?",

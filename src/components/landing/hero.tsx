@@ -53,7 +53,7 @@ export function Hero() {
             className="mt-6 max-w-2xl text-lg text-muted sm:text-xl"
           >
             Paste any YouTube, Twitch, Kick, or Rumble link. Our AI finds the best moments,
-            edits them into scroll-stopping clips, and posts them everywhere — fully automated.
+            edits them into scroll-stopping clips, and auto-posts to TikTok — fully automated.
           </motion.p>
 
           <motion.div

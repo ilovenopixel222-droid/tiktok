@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { store } from "@/lib/store";
 
+export const maxDuration = 300;
+
 export async function POST(request: NextRequest) {
   const apiKey = process.env.ASSEMBLYAI_API_KEY;
   if (!apiKey) {
@@ -16,7 +18,6 @@ export async function POST(request: NextRequest) {
     title?: string;
     momentTypes?: string[];
     clipLength?: string;
-    captionStyle?: string;
   };
 
   try {
@@ -34,7 +35,6 @@ export async function POST(request: NextRequest) {
   const videoId = `vid_${Date.now()}`;
   const jobId = `job_${Date.now()}`;
 
-  // Store video record
   store.addVideo({
     id: videoId,
     title: title || `Video ${new Date().toLocaleDateString()}`,
@@ -51,147 +51,148 @@ export async function POST(request: NextRequest) {
     url: videoUrl,
   });
 
-  // Create processing job
   store.addJob({
     id: jobId,
     videoId,
     title: title || `Processing: ${videoUrl.substring(0, 50)}...`,
-    progress: 0,
+    progress: 5,
     clipsFound: 0,
     status: "Submitting to AssemblyAI...",
     createdAt: new Date().toISOString(),
   });
 
-  // Start async processing
-  processVideoAsync(videoId, jobId, videoUrl, apiKey, momentTypes, clipLength).catch(
-    (error) => {
-      console.error("Video processing error:", error);
-      store.updateJob(jobId, {
-        status: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
-        progress: 0,
-      });
-      store.updateVideo(videoId, { status: "failed" });
-    }
-  );
+  try {
+    // Step 1: Submit to AssemblyAI
+    store.updateJob(jobId, { progress: 10, status: "Submitting audio to AssemblyAI..." });
 
-  return Response.json({
-    videoId,
-    jobId,
-    status: "processing",
-    message: "Video processing started. Check /api/jobs for progress.",
-  }, { status: 201 });
-}
-
-async function processVideoAsync(
-  videoId: string,
-  jobId: string,
-  videoUrl: string,
-  apiKey: string,
-  momentTypes?: string[],
-  clipLength?: string,
-) {
-  // Step 1: Submit to AssemblyAI
-  store.updateJob(jobId, { progress: 10, status: "Submitting audio to AssemblyAI..." });
-
-  const submitRes = await fetch("https://api.assemblyai.com/v2/transcript", {
-    method: "POST",
-    headers: {
-      Authorization: apiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      audio_url: videoUrl,
-      speaker_labels: true,
-      sentiment_analysis: true,
-      auto_highlights: true,
-    }),
-  });
-
-  if (!submitRes.ok) {
-    throw new Error(`AssemblyAI submission failed: ${await submitRes.text()}`);
-  }
-
-  const { id: transcriptId } = await submitRes.json();
-  store.updateJob(jobId, { progress: 20, status: "Transcribing audio..." });
-
-  // Step 2: Poll for completion
-  let transcript;
-  for (let i = 0; i < 120; i++) {
-    const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
-      headers: { Authorization: apiKey },
+    const submitRes = await fetch("https://api.assemblyai.com/v2/transcript", {
+      method: "POST",
+      headers: {
+        Authorization: apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        audio_url: videoUrl,
+        speech_model: "universal-2",
+        speaker_labels: true,
+        sentiment_analysis: true,
+        auto_highlights: true,
+      }),
     });
 
-    if (!pollRes.ok) throw new Error("Polling failed");
+    if (!submitRes.ok) {
+      const errText = await submitRes.text();
+      store.updateJob(jobId, { progress: 0, status: `Error: AssemblyAI rejected the request — ${errText}` });
+      store.updateVideo(videoId, { status: "failed" });
+      return Response.json({ error: `AssemblyAI submission failed: ${errText}` }, { status: 500 });
+    }
 
-    transcript = await pollRes.json();
+    const { id: transcriptId } = await submitRes.json();
+    store.updateJob(jobId, { progress: 20, status: "Transcribing audio..." });
 
-    if (transcript.status === "completed") break;
-    if (transcript.status === "error") throw new Error(transcript.error);
+    // Step 2: Poll for completion
+    let transcript;
+    for (let i = 0; i < 180; i++) {
+      const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
+        headers: { Authorization: apiKey },
+      });
 
-    const progress = Math.min(20 + i * 0.5, 60);
-    store.updateJob(jobId, { progress: Math.round(progress), status: "Transcribing audio..." });
+      if (!pollRes.ok) {
+        store.updateJob(jobId, { progress: 0, status: "Error: Failed to poll AssemblyAI" });
+        store.updateVideo(videoId, { status: "failed" });
+        return Response.json({ error: "Polling failed" }, { status: 500 });
+      }
 
-    await new Promise((r) => setTimeout(r, 3000));
-  }
+      transcript = await pollRes.json();
 
-  if (!transcript || transcript.status !== "completed") {
-    throw new Error("Transcription timed out");
-  }
+      if (transcript.status === "completed") break;
+      if (transcript.status === "error") {
+        store.updateJob(jobId, { progress: 0, status: `Error: ${transcript.error}` });
+        store.updateVideo(videoId, { status: "failed" });
+        return Response.json({ error: transcript.error }, { status: 500 });
+      }
 
-  store.updateJob(jobId, { progress: 65, status: "Analyzing for viral moments..." });
+      const progress = Math.min(20 + i * 0.3, 60);
+      store.updateJob(jobId, { progress: Math.round(progress), status: "Transcribing audio..." });
 
-  // Step 3: Detect moments from transcript
-  const moments = detectMomentsFromTranscript(transcript, momentTypes);
-  store.updateJob(jobId, {
-    progress: 80,
-    clipsFound: moments.length,
-    status: `Found ${moments.length} viral moments. Generating clips...`,
-  });
+      await new Promise((r) => setTimeout(r, 2000));
+    }
 
-  // Step 4: Create clip records for each moment
-  const clipDuration = clipLength === "15-30s" ? 25 : clipLength === "60-90s" ? 75 : 45;
+    if (!transcript || transcript.status !== "completed") {
+      store.updateJob(jobId, { progress: 0, status: "Error: Transcription timed out" });
+      store.updateVideo(videoId, { status: "failed" });
+      return Response.json({ error: "Transcription timed out" }, { status: 500 });
+    }
 
-  for (let i = 0; i < moments.length; i++) {
-    const moment = moments[i];
-    const clipId = `clip_${Date.now()}_${i}`;
+    store.updateJob(jobId, { progress: 65, status: "Analyzing for viral moments..." });
 
-    store.addClip({
-      id: clipId,
-      videoId,
-      title: generateClipTitle(moment),
-      viralScore: moment.viralScore,
-      views: 0,
-      likes: 0,
-      comments: 0,
-      status: "ready",
-      platform: "TikTok",
-      duration: formatDuration(clipDuration),
-      moment: moment.type,
-      date: new Date().toISOString().split("T")[0],
-      thumbnail: `gradient-${(i % 9) + 1}`,
-      transcriptSegment: moment.text,
-      startTime: moment.start,
-      endTime: moment.end,
+    // Step 3: Detect moments
+    const moments = detectMomentsFromTranscript(transcript, momentTypes);
+    store.updateJob(jobId, {
+      progress: 80,
+      clipsFound: moments.length,
+      status: `Found ${moments.length} viral moments. Generating clips...`,
+    });
+
+    // Step 4: Create clip records
+    const clipDuration = clipLength === "15-30s" ? 25 : clipLength === "60-90s" ? 75 : 45;
+
+    for (let i = 0; i < moments.length; i++) {
+      const moment = moments[i];
+      const clipId = `clip_${Date.now()}_${i}`;
+
+      store.addClip({
+        id: clipId,
+        videoId,
+        title: generateClipTitle(moment),
+        viralScore: moment.viralScore,
+        views: 0,
+        likes: 0,
+        comments: 0,
+        status: "ready",
+        platform: "TikTok",
+        duration: formatDuration(clipDuration),
+        moment: moment.type,
+        date: new Date().toISOString().split("T")[0],
+        thumbnail: `gradient-${(i % 9) + 1}`,
+        transcriptSegment: moment.text,
+        startTime: moment.start,
+        endTime: moment.end,
+      });
+
+      store.updateJob(jobId, {
+        progress: Math.round(80 + (i / moments.length) * 18),
+        status: `Generated clip ${i + 1}/${moments.length}...`,
+      });
+    }
+
+    // Step 5: Finalize
+    store.updateVideo(videoId, {
+      status: "processed",
+      clips: moments.length,
+      duration: formatDuration(Math.round(transcript.audio_duration || 0)),
     });
 
     store.updateJob(jobId, {
-      progress: Math.round(80 + (i / moments.length) * 18),
-      status: `Generated clip ${i + 1}/${moments.length}...`,
+      progress: 100,
+      clipsFound: moments.length,
+      status: `Complete! ${moments.length} clips generated.`,
     });
+
+    return Response.json({
+      videoId,
+      jobId,
+      status: "complete",
+      clipsGenerated: moments.length,
+      message: `Processing complete. ${moments.length} clips generated.`,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Video processing error:", message);
+    store.updateJob(jobId, { status: `Error: ${message}`, progress: 0 });
+    store.updateVideo(videoId, { status: "failed" });
+    return Response.json({ error: message }, { status: 500 });
   }
-
-  // Step 5: Finalize
-  store.updateVideo(videoId, {
-    status: "processed",
-    clips: moments.length,
-    duration: formatDuration(Math.round((transcript.audio_duration || 0))),
-  });
-
-  store.updateJob(jobId, {
-    progress: 100,
-    clipsFound: moments.length,
-    status: `Complete! ${moments.length} clips generated.`,
-  });
 }
 
 interface TranscriptMoment {
@@ -204,16 +205,21 @@ interface TranscriptMoment {
 }
 
 function detectMomentsFromTranscript(
-  transcript: { utterances?: Array<{ text: string; start: number; end: number; confidence: number }>; sentiment_analysis_results?: Array<{ text: string; start: number; end: number; sentiment: string; confidence: number }> },
+  transcript: {
+    utterances?: Array<{ text: string; start: number; end: number; confidence: number }>;
+    sentiment_analysis_results?: Array<{ text: string; start: number; end: number; sentiment: string; confidence: number }>;
+    text?: string;
+    words?: Array<{ text: string; start: number; end: number }>;
+  },
   momentTypes?: string[],
 ): TranscriptMoment[] {
   const moments: TranscriptMoment[] = [];
   const types = momentTypes || [];
 
+  // Method 1: Sentiment-based detection
   const sentiments = transcript.sentiment_analysis_results || [];
-
   for (const s of sentiments) {
-    if (s.sentiment === "POSITIVE" && s.confidence > 0.6) {
+    if (s.sentiment === "POSITIVE" && s.confidence > 0.5) {
       moments.push({
         text: s.text,
         start: s.start,
@@ -223,7 +229,7 @@ function detectMomentsFromTranscript(
         viralScore: Math.round(s.confidence * 85 + Math.random() * 15),
       });
     }
-    if (s.sentiment === "NEGATIVE" && s.confidence > 0.6) {
+    if (s.sentiment === "NEGATIVE" && s.confidence > 0.5) {
       moments.push({
         text: s.text,
         start: s.start,
@@ -235,18 +241,19 @@ function detectMomentsFromTranscript(
     }
   }
 
+  // Method 2: Utterance pattern-based detection
   if (transcript.utterances) {
     for (const u of transcript.utterances) {
       const text = u.text.toLowerCase();
-
       const patterns: Array<{ keywords: string[]; type: string; baseScore: number }> = [
-        { keywords: ["crazy", "insane", "wild", "omg", "what the"], type: "Shocking", baseScore: 82 },
-        { keywords: ["haha", "lol", "funny", "laugh", "😂"], type: "Funny", baseScore: 85 },
-        { keywords: ["think", "believe", "opinion", "disagree", "wrong"], type: "Debate", baseScore: 75 },
-        { keywords: ["story", "remember", "one time", "back when", "let me tell"], type: "Storytelling", baseScore: 78 },
-        { keywords: ["angry", "rage", "frustrated", "pissed", "mad"], type: "Rage", baseScore: 80 },
-        { keywords: ["motivat", "inspire", "never give up", "you can", "believe in"], type: "Motivational", baseScore: 77 },
-        { keywords: ["fail", "messed up", "disaster", "went wrong"], type: "Stream Fail", baseScore: 83 },
+        { keywords: ["crazy", "insane", "wild", "omg", "what the", "no way", "oh my god"], type: "Shocking", baseScore: 82 },
+        { keywords: ["haha", "lol", "funny", "laugh", "hilarious", "joke", "😂"], type: "Funny", baseScore: 85 },
+        { keywords: ["think", "believe", "opinion", "disagree", "wrong", "debate", "argue"], type: "Debate", baseScore: 75 },
+        { keywords: ["story", "remember", "one time", "back when", "let me tell", "so basically"], type: "Storytelling", baseScore: 78 },
+        { keywords: ["angry", "rage", "frustrated", "pissed", "mad", "furious"], type: "Rage", baseScore: 80 },
+        { keywords: ["motivat", "inspire", "never give up", "you can", "believe in", "keep going"], type: "Motivational", baseScore: 77 },
+        { keywords: ["fail", "messed up", "disaster", "went wrong", "oops", "broken"], type: "Stream Fail", baseScore: 83 },
+        { keywords: ["love", "amazing", "best", "incredible", "awesome", "beautiful"], type: "Highlight", baseScore: 76 },
       ];
 
       for (const pattern of patterns) {
@@ -263,6 +270,45 @@ function detectMomentsFromTranscript(
           }
         }
       }
+    }
+  }
+
+  // Method 3: If very few moments found, create segments from transcript text
+  if (moments.length < 3 && transcript.words && transcript.words.length > 0) {
+    const words = transcript.words;
+    const segmentDuration = 30000; // 30 seconds
+    let segStart = words[0].start;
+    let segWords: string[] = [];
+
+    for (const word of words) {
+      segWords.push(word.text);
+      if (word.end - segStart >= segmentDuration) {
+        const segText = segWords.join(" ");
+        if (segText.length > 50) {
+          moments.push({
+            text: segText.substring(0, 200),
+            start: segStart,
+            end: word.end,
+            type: "Highlight",
+            confidence: 0.7,
+            viralScore: Math.round(65 + Math.random() * 25),
+          });
+        }
+        segStart = word.end;
+        segWords = [];
+      }
+    }
+
+    if (segWords.length > 10) {
+      const segText = segWords.join(" ");
+      moments.push({
+        text: segText.substring(0, 200),
+        start: segStart,
+        end: words[words.length - 1].end,
+        type: "Highlight",
+        confidence: 0.6,
+        viralScore: Math.round(60 + Math.random() * 25),
+      });
     }
   }
 
@@ -290,6 +336,7 @@ function generateClipTitle(moment: TranscriptMoment): string {
     Rage: ["😡 ", "RAGE: ", "Got so mad: "],
     Motivational: ["💪 ", "Motivation: ", ""],
     "Stream Fail": ["💀 ", "FAIL: ", "Stream fail: "],
+    Highlight: ["⭐ ", "Best moment: ", ""],
   };
 
   const typePrefix = prefixes[moment.type] || [""];
