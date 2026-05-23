@@ -39,6 +39,15 @@ interface ProcessingStep {
   done: boolean;
 }
 
+function tryParseError(text: string): string | null {
+  try {
+    const data = JSON.parse(text);
+    return data.error || data.message || null;
+  } catch {
+    return text.length > 200 ? text.substring(0, 200) + "..." : text;
+  }
+}
+
 export default function UploadPage() {
   const [mode, setMode] = useState<"link" | "upload">("link");
   const [url, setUrl] = useState("");
@@ -135,21 +144,33 @@ export default function UploadPage() {
           return;
         }
 
-        const formData = new FormData();
-        formData.append("file", selectedFile);
+        // Upload directly to AssemblyAI from client (bypasses Vercel body size limit)
+        setSteps((prev) => prev.map((s, i) => i === 0 ? { ...s, label: "Uploading file..." } : s));
 
-        const uploadRes = await fetch("/api/upload", {
+        const apiKeyRes = await fetch("/api/upload-key");
+        if (!apiKeyRes.ok) {
+          const text = await apiKeyRes.text();
+          throw new Error(tryParseError(text) || "Failed to get upload credentials");
+        }
+        const { key } = await apiKeyRes.json();
+
+        const fileBytes = await selectedFile.arrayBuffer();
+        const uploadRes = await fetch("https://api.assemblyai.com/v2/upload", {
           method: "POST",
-          body: formData,
+          headers: {
+            Authorization: key,
+            "Content-Type": "application/octet-stream",
+          },
+          body: fileBytes,
         });
 
         if (!uploadRes.ok) {
-          const errData = await uploadRes.json();
-          throw new Error(errData.error || "Upload failed");
+          const text = await uploadRes.text();
+          throw new Error(tryParseError(text) || "File upload failed");
         }
 
         const uploadData = await uploadRes.json();
-        processUrl = uploadData.uploadUrl;
+        processUrl = uploadData.upload_url;
         processTitle = selectedFile.name.replace(/\.[^/.]+$/, "");
       }
 
@@ -167,11 +188,11 @@ export default function UploadPage() {
       if (progressRef.current) clearInterval(progressRef.current);
 
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Processing failed");
+        const text = await res.text();
+        throw new Error(tryParseError(text) || "Processing failed");
       }
 
-      const data = await res.json();
+      const data = JSON.parse(await res.text());
 
       setProgress(100);
       setSteps((prev) => prev.map((s) => ({ ...s, done: true })));
