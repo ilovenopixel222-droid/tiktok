@@ -1,0 +1,204 @@
+"use client";
+
+import { motion } from "framer-motion";
+import {
+  Scissors, Eye, TrendingUp, Zap, ArrowUpRight, Play,
+  Clock, BarChart3, Sparkles
+} from "lucide-react";
+import Link from "next/link";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Topbar } from "@/components/dashboard/topbar";
+import { formatNumber } from "@/lib/utils";
+
+const stats = [
+  { label: "Total Clips", value: 147, change: "+12", icon: Scissors, color: "from-purple-500 to-violet-600" },
+  { label: "Total Views", value: 2_430_000, change: "+24%", icon: Eye, color: "from-cyan-500 to-blue-600" },
+  { label: "Viral Score Avg", value: 87, change: "+5", icon: TrendingUp, color: "from-emerald-500 to-green-600", suffix: "%" },
+  { label: "This Month", value: 23, change: "+8", icon: Zap, color: "from-amber-500 to-orange-600" },
+];
+
+const recentClips = [
+  { id: "1", title: "When chat said I couldn't do it 😂", viralScore: 95, views: 458000, status: "published" as const, platform: "TikTok", duration: "0:47", moment: "funny" },
+  { id: "2", title: "This reaction was INSANE", viralScore: 91, views: 312000, status: "published" as const, platform: "Reels", duration: "0:34", moment: "shocking" },
+  { id: "3", title: "The most emotional moment on stream", viralScore: 88, views: 0, status: "ready" as const, platform: "Shorts", duration: "0:52", moment: "emotional" },
+  { id: "4", title: "Hot take: this game is overrated", viralScore: 82, views: 0, status: "processing" as const, platform: "TikTok", duration: "0:41", moment: "controversial" },
+  { id: "5", title: "The debate got heated real quick", viralScore: 79, views: 189000, status: "published" as const, platform: "Reels", duration: "0:58", moment: "argument" },
+];
+
+const processingJobs = [
+  { title: "Stream VOD - May 22, 2026", progress: 78, clipsFound: 12, status: "Generating clips..." },
+  { title: "Podcast Episode #47", progress: 45, clipsFound: 8, status: "Analyzing content..." },
+];
+
+function getStatusBadge(status: string) {
+  switch (status) {
+    case "published": return <Badge variant="success">Published</Badge>;
+    case "ready": return <Badge variant="primary">Ready</Badge>;
+    case "processing": return <Badge variant="warning">Processing</Badge>;
+    case "scheduled": return <Badge variant="outline">Scheduled</Badge>;
+    default: return <Badge>{status}</Badge>;
+  }
+}
+
+export default function DashboardPage() {
+  return (
+    <>
+      <Topbar title="Dashboard" subtitle="Welcome back, Isaac! Here's your content overview." />
+      <div className="p-6 space-y-6">
+        {/* Stats */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {stats.map((stat, i) => (
+            <motion.div
+              key={stat.label}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
+            >
+              <Card className="relative overflow-hidden">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-xs font-medium text-muted">{stat.label}</p>
+                    <p className="mt-1 text-2xl font-bold">
+                      {typeof stat.value === "number" && stat.value > 999
+                        ? formatNumber(stat.value)
+                        : stat.value}
+                      {stat.suffix || ""}
+                    </p>
+                    <div className="mt-1 flex items-center gap-1 text-xs text-success">
+                      <ArrowUpRight className="h-3 w-3" />
+                      {stat.change}
+                    </div>
+                  </div>
+                  <div className={`rounded-xl bg-gradient-to-br ${stat.color} p-2.5`}>
+                    <stat.icon className="h-5 w-5 text-white" />
+                  </div>
+                </div>
+                <div className="absolute -bottom-6 -right-6 h-24 w-24 rounded-full bg-gradient-to-br from-white/[0.02] to-transparent" />
+              </Card>
+            </motion.div>
+          ))}
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Recent Clips */}
+          <div className="lg:col-span-2">
+            <Card>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-base font-semibold">Recent Clips</h2>
+                <Link href="/dashboard/clips">
+                  <Button variant="ghost" size="sm">
+                    View All
+                    <ArrowUpRight className="h-3 w-3" />
+                  </Button>
+                </Link>
+              </div>
+              <div className="space-y-3">
+                {recentClips.map((clip) => (
+                  <div
+                    key={clip.id}
+                    className="flex items-center gap-4 rounded-xl bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-colors"
+                  >
+                    <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-secondary/20 border border-white/5">
+                      <Play className="h-4 w-4 text-primary-light" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{clip.title}</p>
+                      <div className="mt-1 flex items-center gap-3 text-xs text-muted">
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {clip.duration}
+                        </span>
+                        <span>{clip.platform}</span>
+                        {clip.views > 0 && (
+                          <span className="flex items-center gap-1">
+                            <Eye className="h-3 w-3" />
+                            {formatNumber(clip.views)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="hidden sm:flex items-center gap-3">
+                      <div className="text-right">
+                        <div className="flex items-center gap-1 text-sm font-bold text-emerald-400">
+                          <Sparkles className="h-3 w-3" />
+                          {clip.viralScore}%
+                        </div>
+                        <div className="text-[10px] text-muted">Viral Score</div>
+                      </div>
+                      {getStatusBadge(clip.status)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+
+          {/* Processing & Quick Actions */}
+          <div className="space-y-6">
+            <Card>
+              <h2 className="text-base font-semibold mb-4">Processing Queue</h2>
+              {processingJobs.length > 0 ? (
+                <div className="space-y-4">
+                  {processingJobs.map((job, i) => (
+                    <div key={i} className="rounded-xl bg-white/[0.02] p-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium truncate">{job.title}</span>
+                        <span className="shrink-0 text-xs text-primary-light">{job.progress}%</span>
+                      </div>
+                      <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${job.progress}%` }}
+                          transition={{ duration: 1, delay: i * 0.3 }}
+                          className="h-full rounded-full bg-gradient-to-r from-primary to-secondary"
+                        />
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs text-muted">
+                        <span>{job.status}</span>
+                        <span>{job.clipsFound} clips found</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted">No active processing jobs.</p>
+              )}
+            </Card>
+
+            <Card>
+              <h2 className="text-base font-semibold mb-4">Quick Actions</h2>
+              <div className="grid grid-cols-2 gap-2">
+                <Link href="/dashboard/upload">
+                  <Button variant="secondary" size="sm" className="w-full text-xs">
+                    <Zap className="h-3.5 w-3.5" />
+                    New Clip
+                  </Button>
+                </Link>
+                <Link href="/dashboard/analytics">
+                  <Button variant="secondary" size="sm" className="w-full text-xs">
+                    <BarChart3 className="h-3.5 w-3.5" />
+                    Analytics
+                  </Button>
+                </Link>
+                <Link href="/dashboard/calendar">
+                  <Button variant="secondary" size="sm" className="w-full text-xs">
+                    <Clock className="h-3.5 w-3.5" />
+                    Schedule
+                  </Button>
+                </Link>
+                <Link href="/dashboard/clips">
+                  <Button variant="secondary" size="sm" className="w-full text-xs">
+                    <Scissors className="h-3.5 w-3.5" />
+                    My Clips
+                  </Button>
+                </Link>
+              </div>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
