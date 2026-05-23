@@ -1,7 +1,49 @@
 import { NextRequest } from "next/server";
 import { store } from "@/lib/store";
+import ytdl from "@distube/ytdl-core";
 
 export const maxDuration = 300;
+
+function isYouTubeUrl(url: string): boolean {
+  return /(?:youtube\.com|youtu\.be)/i.test(url);
+}
+
+function isPlatformUrl(url: string): boolean {
+  return /(?:youtube\.com|youtu\.be|twitch\.tv|kick\.com|rumble\.com)/i.test(url);
+}
+
+async function getDirectAudioUrl(videoUrl: string): Promise<string> {
+  if (isYouTubeUrl(videoUrl)) {
+    try {
+      const info = await ytdl.getInfo(videoUrl);
+      const audioFormat = ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" });
+      if (audioFormat?.url) {
+        return audioFormat.url;
+      }
+    } catch (e) {
+      console.error("ytdl-core failed, falling back to upload method:", e);
+    }
+  }
+
+  if (isPlatformUrl(videoUrl)) {
+    throw new Error(
+      "Could not extract audio from this URL. For best results, download the video first and upload the file directly using the Upload tab."
+    );
+  }
+
+  // For direct media URLs, upload to AssemblyAI first to verify it's accessible
+  const headRes = await fetch(videoUrl, { method: "HEAD" }).catch(() => null);
+  if (headRes) {
+    const contentType = headRes.headers.get("content-type") || "";
+    if (contentType.includes("text/html")) {
+      throw new Error(
+        "This URL returns a web page, not a media file. Please upload the video file directly or provide a direct link to the audio/video file."
+      );
+    }
+  }
+
+  return videoUrl;
+}
 
 export async function POST(request: NextRequest) {
   const apiKey = process.env.ASSEMBLYAI_API_KEY;
@@ -57,12 +99,25 @@ export async function POST(request: NextRequest) {
     title: title || `Processing: ${videoUrl.substring(0, 50)}...`,
     progress: 5,
     clipsFound: 0,
-    status: "Submitting to AssemblyAI...",
+    status: "Extracting audio...",
     createdAt: new Date().toISOString(),
   });
 
   try {
-    // Step 1: Submit to AssemblyAI
+    // Step 1: Extract direct audio URL from platform links
+    store.updateJob(jobId, { progress: 5, status: "Extracting audio from video..." });
+
+    let audioUrl: string;
+    try {
+      audioUrl = await getDirectAudioUrl(videoUrl);
+    } catch (extractErr) {
+      const msg = extractErr instanceof Error ? extractErr.message : "Failed to extract audio";
+      store.updateJob(jobId, { progress: 0, status: `Error: ${msg}` });
+      store.updateVideo(videoId, { status: "failed" });
+      return Response.json({ error: msg }, { status: 400 });
+    }
+
+    // Step 2: Submit to AssemblyAI
     store.updateJob(jobId, { progress: 10, status: "Submitting audio to AssemblyAI..." });
 
     const submitRes = await fetch("https://api.assemblyai.com/v2/transcript", {
@@ -72,7 +127,7 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        audio_url: videoUrl,
+        audio_url: audioUrl,
         speech_models: ["universal-2"],
         speaker_labels: true,
         sentiment_analysis: true,
