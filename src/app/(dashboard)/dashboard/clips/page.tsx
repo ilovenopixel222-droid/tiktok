@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
-  Play, Eye, Clock, Sparkles, MoreVertical, Download, Share2,
-  Trash2, Edit3, Filter, SortDesc, Grid3X3, List, Search,
-  Upload, FileVideo
+  Play, Eye, Clock, Sparkles, Download, Share2,
+  Trash2, Grid3X3, List, Search, Upload, FileVideo,
+  X, Copy, CheckCircle2, Hash, Type,
+  BarChart3, MessageSquare, Heart
 } from "lucide-react";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -27,6 +28,10 @@ interface Clip {
   moment: string;
   date: string;
   thumbnail: string;
+  transcriptSegment?: string;
+  startTime?: number;
+  endTime?: number;
+  videoId?: string;
 }
 
 const gradients = [
@@ -46,6 +51,14 @@ function getStatusBadge(status: string) {
   }
 }
 
+function formatTime(ms?: number): string {
+  if (!ms && ms !== 0) return "--:--";
+  const totalSec = Math.round(ms / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${min}:${sec.toString().padStart(2, "0")}`;
+}
+
 function loadStoredClips(): Clip[] {
   if (typeof window === "undefined") return [];
   try {
@@ -61,18 +74,87 @@ function loadStoredClips(): Clip[] {
 export default function ClipsPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [clips, setClips] = useState<Clip[]>(loadStoredClips);
+  const [selectedClip, setSelectedClip] = useState<Clip | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (clips.length > 0) return;
-    // Fallback: try API (works in non-serverless environments)
     fetch("/api/clips").then(r => r.json()).then(data => {
       if (data.clips) setClips(data.clips);
     }).catch(() => {});
   }, [clips.length]);
 
-  const filtered = filterStatus === "all" ? clips : clips.filter((c) => c.status === filterStatus);
+  const filtered = useMemo(() => {
+    let result = clips;
+    if (filterStatus !== "all") result = result.filter((c) => c.status === filterStatus);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((c) =>
+        c.title.toLowerCase().includes(q) ||
+        c.moment.toLowerCase().includes(q) ||
+        (c.transcriptSegment && c.transcriptSegment.toLowerCase().includes(q))
+      );
+    }
+    return result;
+  }, [clips, filterStatus, searchQuery]);
+
   const publishedCount = clips.filter(c => c.status === "published").length;
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const handleCopyTranscript = (clip: Clip) => {
+    const text = clip.transcriptSegment || clip.title;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    showToast("Transcript copied to clipboard!");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyTitle = (clip: Clip) => {
+    navigator.clipboard.writeText(clip.title);
+    showToast("Title copied!");
+  };
+
+  const handleDeleteClip = (clipId: string) => {
+    const updated = clips.filter(c => c.id !== clipId);
+    setClips(updated);
+    localStorage.setItem("clipviral_clips", JSON.stringify(updated));
+    if (selectedClip?.id === clipId) setSelectedClip(null);
+    showToast("Clip deleted");
+  };
+
+  const handleExportClip = (clip: Clip) => {
+    const exportData = {
+      title: clip.title,
+      transcript: clip.transcriptSegment || "",
+      viralScore: clip.viralScore,
+      moment: clip.moment,
+      duration: clip.duration,
+      startTime: formatTime(clip.startTime),
+      endTime: formatTime(clip.endTime),
+      hashtags: generateHashtags(clip),
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${clip.title.replace(/[^a-zA-Z0-9]/g, "_")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Clip data exported!");
+  };
+
+  const handleShareClip = (clip: Clip) => {
+    const text = `${clip.title}\n\nViral Score: ${clip.viralScore}%\nMoment: ${clip.moment}\n\n${clip.transcriptSegment || ""}`;
+    navigator.clipboard.writeText(text);
+    showToast("Clip info copied for sharing!");
+  };
 
   return (
     <>
@@ -85,11 +167,13 @@ export default function ClipsPage() {
             <input
               type="text"
               placeholder="Search clips..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-transparent text-sm text-foreground placeholder:text-muted/60 outline-none"
             />
           </div>
 
-          <div className="flex gap-1.5">
+          <div className="flex gap-1.5 flex-wrap">
             {["all", "published", "ready", "processing", "scheduled", "draft"].map((s) => (
               <button
                 key={s}
@@ -106,12 +190,6 @@ export default function ClipsPage() {
           </div>
 
           <div className="ml-auto flex gap-1.5">
-            <Button variant="ghost" size="sm" className="text-muted">
-              <Filter className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="text-muted">
-              <SortDesc className="h-4 w-4" />
-            </Button>
             <button
               onClick={() => setViewMode("grid")}
               className={`rounded-lg p-2 transition-colors cursor-pointer ${viewMode === "grid" ? "bg-white/10 text-foreground" : "text-muted hover:text-foreground"}`}
@@ -154,7 +232,7 @@ export default function ClipsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
               >
-                <Card hover className="overflow-hidden p-0">
+                <Card hover className="overflow-hidden p-0 cursor-pointer" onClick={() => setSelectedClip(clip)}>
                   <div className={`relative aspect-[9/12] bg-gradient-to-br ${gradients[i % gradients.length]} flex items-center justify-center`}>
                     <Play className="h-12 w-12 text-white/80" />
                     <div className="absolute top-3 left-3 flex gap-1.5">
@@ -174,6 +252,9 @@ export default function ClipsPage() {
                   </div>
                   <div className="p-4">
                     <h3 className="text-sm font-semibold truncate">{clip.title}</h3>
+                    {clip.transcriptSegment && (
+                      <p className="mt-1 text-xs text-muted line-clamp-2">{clip.transcriptSegment}</p>
+                    )}
                     <div className="mt-2 flex items-center gap-3 text-xs text-muted">
                       <span>{clip.platform}</span>
                       <span>{clip.date}</span>
@@ -184,17 +265,17 @@ export default function ClipsPage() {
                         </span>
                       )}
                     </div>
-                    <div className="mt-3 flex gap-1.5">
-                      <Button variant="secondary" size="sm" className="flex-1 text-xs">
-                        <Edit3 className="h-3 w-3" />
-                        Edit
+                    <div className="mt-3 flex gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <Button variant="secondary" size="sm" className="flex-1 text-xs" onClick={() => handleCopyTranscript(clip)}>
+                        <Copy className="h-3 w-3" />
+                        Copy Text
                       </Button>
-                      <Button variant="secondary" size="sm" className="flex-1 text-xs">
+                      <Button variant="secondary" size="sm" className="flex-1 text-xs" onClick={() => handleShareClip(clip)}>
                         <Share2 className="h-3 w-3" />
-                        Publish
+                        Share
                       </Button>
-                      <Button variant="ghost" size="sm" className="text-muted">
-                        <MoreVertical className="h-3 w-3" />
+                      <Button variant="ghost" size="sm" className="text-muted hover:text-red-400" onClick={() => handleDeleteClip(clip.id)}>
+                        <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>
                   </div>
@@ -205,17 +286,19 @@ export default function ClipsPage() {
         ) : (
           <Card>
             <div className="space-y-2">
-              {filtered.map((clip) => (
+              {filtered.map((clip, i) => (
                 <div
                   key={clip.id}
-                  className="flex items-center gap-4 rounded-xl bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-colors"
+                  onClick={() => setSelectedClip(clip)}
+                  className="flex items-center gap-4 rounded-xl bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-colors cursor-pointer"
                 >
-                  <div className={`flex h-12 w-20 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${gradients[parseInt(clip.id) % gradients.length]}`}>
+                  <div className={`flex h-12 w-20 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${gradients[i % gradients.length]}`}>
                     <Play className="h-4 w-4 text-white" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{clip.title}</p>
                     <div className="mt-1 flex items-center gap-3 text-xs text-muted">
+                      <span>{clip.moment}</span>
                       <span>{clip.platform}</span>
                       <span>{clip.date}</span>
                       <span>{clip.duration}</span>
@@ -234,10 +317,19 @@ export default function ClipsPage() {
                     </div>
                     {getStatusBadge(clip.status)}
                   </div>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="sm" className="text-muted"><Download className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="sm" className="text-muted"><Share2 className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="sm" className="text-muted"><Trash2 className="h-3.5 w-3.5" /></Button>
+                  <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                    <Button variant="ghost" size="sm" className="text-muted" onClick={() => handleCopyTranscript(clip)}>
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-muted" onClick={() => handleExportClip(clip)}>
+                      <Download className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-muted" onClick={() => handleShareClip(clip)}>
+                      <Share2 className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-muted hover:text-red-400" onClick={() => handleDeleteClip(clip.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -245,6 +337,230 @@ export default function ClipsPage() {
           </Card>
         )}
       </div>
+
+      {/* Clip Detail Modal */}
+      <AnimatePresence>
+        {selectedClip && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            onClick={() => setSelectedClip(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0f0f14] p-6 shadow-2xl"
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between mb-6">
+                <div className="flex-1 min-w-0 pr-4">
+                  <h2 className="text-xl font-bold truncate">{selectedClip.title}</h2>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {getStatusBadge(selectedClip.status)}
+                    <Badge className="bg-white/10">{selectedClip.moment}</Badge>
+                    <Badge className="bg-white/10">{selectedClip.platform}</Badge>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedClip(null)} className="rounded-lg p-2 hover:bg-white/10 transition-colors">
+                  <X className="h-5 w-5 text-muted" />
+                </button>
+              </div>
+
+              {/* Viral Score */}
+              <div className="mb-6 rounded-xl bg-gradient-to-r from-purple-500/10 to-cyan-500/10 border border-white/10 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Sparkles className="h-5 w-5 text-purple-400" />
+                    <span className="text-sm font-medium">Viral Score</span>
+                  </div>
+                  <span className={`text-3xl font-bold ${getViralScoreColor(selectedClip.viralScore)}`}>
+                    {selectedClip.viralScore}%
+                  </span>
+                </div>
+                <div className="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      selectedClip.viralScore >= 80 ? "bg-gradient-to-r from-emerald-500 to-green-400" :
+                      selectedClip.viralScore >= 60 ? "bg-gradient-to-r from-amber-500 to-yellow-400" :
+                      "bg-gradient-to-r from-red-500 to-orange-400"
+                    }`}
+                    style={{ width: `${selectedClip.viralScore}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-muted">
+                  {selectedClip.viralScore >= 80 ? "High viral potential — this clip is likely to perform well!" :
+                   selectedClip.viralScore >= 60 ? "Moderate viral potential — consider optimizing the hook." :
+                   "Lower viral potential — try adjusting the clip boundaries or content."}
+                </p>
+              </div>
+
+              {/* Stats Grid */}
+              <div className="grid grid-cols-4 gap-3 mb-6">
+                <div className="rounded-xl bg-white/[0.04] p-3 text-center">
+                  <Clock className="h-4 w-4 mx-auto mb-1 text-muted" />
+                  <p className="text-sm font-bold">{selectedClip.duration}</p>
+                  <p className="text-xs text-muted">Duration</p>
+                </div>
+                <div className="rounded-xl bg-white/[0.04] p-3 text-center">
+                  <Eye className="h-4 w-4 mx-auto mb-1 text-muted" />
+                  <p className="text-sm font-bold">{formatNumber(selectedClip.views)}</p>
+                  <p className="text-xs text-muted">Views</p>
+                </div>
+                <div className="rounded-xl bg-white/[0.04] p-3 text-center">
+                  <Heart className="h-4 w-4 mx-auto mb-1 text-muted" />
+                  <p className="text-sm font-bold">{formatNumber(selectedClip.likes)}</p>
+                  <p className="text-xs text-muted">Likes</p>
+                </div>
+                <div className="rounded-xl bg-white/[0.04] p-3 text-center">
+                  <MessageSquare className="h-4 w-4 mx-auto mb-1 text-muted" />
+                  <p className="text-sm font-bold">{formatNumber(selectedClip.comments)}</p>
+                  <p className="text-xs text-muted">Comments</p>
+                </div>
+              </div>
+
+              {/* Clip Timeline */}
+              {(selectedClip.startTime !== undefined || selectedClip.endTime !== undefined) && (
+                <div className="mb-6 rounded-xl bg-white/[0.04] border border-white/10 p-4">
+                  <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4 text-cyan-400" />
+                    Clip Timeline
+                  </h3>
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="text-muted">Start:</span>
+                    <span className="font-mono font-medium">{formatTime(selectedClip.startTime)}</span>
+                    <span className="text-muted mx-1">→</span>
+                    <span className="text-muted">End:</span>
+                    <span className="font-mono font-medium">{formatTime(selectedClip.endTime)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Transcript */}
+              {selectedClip.transcriptSegment && (
+                <div className="mb-6 rounded-xl bg-white/[0.04] border border-white/10 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Type className="h-4 w-4 text-purple-400" />
+                      Transcript
+                    </h3>
+                    <button
+                      onClick={() => handleCopyTranscript(selectedClip)}
+                      className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
+                    >
+                      {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+                      {copied ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                  <p className="text-sm text-muted leading-relaxed">{selectedClip.transcriptSegment}</p>
+                </div>
+              )}
+
+              {/* Suggested Hashtags */}
+              <div className="mb-6 rounded-xl bg-white/[0.04] border border-white/10 p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Hash className="h-4 w-4 text-cyan-400" />
+                    Suggested Hashtags
+                  </h3>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(generateHashtags(selectedClip).join(" "));
+                      showToast("Hashtags copied!");
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy All
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {generateHashtags(selectedClip).map((tag) => (
+                    <button
+                      key={tag}
+                      onClick={() => { navigator.clipboard.writeText(tag); showToast(`${tag} copied!`); }}
+                      className="rounded-lg bg-primary/10 border border-primary/20 px-2.5 py-1 text-xs text-primary-light hover:bg-primary/20 transition-colors cursor-pointer"
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => handleCopyTranscript(selectedClip)}>
+                  <Copy className="h-4 w-4" />
+                  Copy Transcript
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => handleExportClip(selectedClip)}>
+                  <Download className="h-4 w-4" />
+                  Export Data
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => handleShareClip(selectedClip)}>
+                  <Share2 className="h-4 w-4" />
+                  Share
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => handleCopyTitle(selectedClip)}>
+                  <Type className="h-4 w-4" />
+                  Copy Title
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-red-400 hover:text-red-300 hover:bg-red-500/10 ml-auto"
+                  onClick={() => handleDeleteClip(selectedClip.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl bg-white/10 backdrop-blur-xl border border-white/20 px-4 py-2.5 text-sm font-medium shadow-2xl flex items-center gap-2"
+          >
+            <CheckCircle2 className="h-4 w-4 text-green-400" />
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
+}
+
+function generateHashtags(clip: Clip): string[] {
+  const base = ["#viral", "#fyp", "#foryou", "#trending"];
+  const momentTags: Record<string, string[]> = {
+    "Funny": ["#funny", "#comedy", "#lol", "#humor"],
+    "Emotional": ["#emotional", "#feels", "#wholesome", "#heartwarming"],
+    "Shocking": ["#shocking", "#omg", "#unbelievable", "#wow"],
+    "Controversial": ["#controversial", "#debate", "#opinion", "#hottake"],
+    "Debate": ["#debate", "#discussion", "#opinion"],
+    "Storytelling": ["#storytime", "#story", "#narrative"],
+    "Rage": ["#rage", "#angry", "#reaction"],
+    "Motivational": ["#motivation", "#inspire", "#grindset", "#mindset"],
+    "Stream Fail": ["#fail", "#streamfail", "#gaming"],
+    "Highlight": ["#highlight", "#bestof", "#clips"],
+  };
+
+  const tags = [...base];
+  if (clip.moment && momentTags[clip.moment]) {
+    tags.push(...momentTags[clip.moment]);
+  }
+  if (clip.platform) tags.push(`#${clip.platform.toLowerCase()}`);
+
+  return [...new Set(tags)].slice(0, 12);
 }
