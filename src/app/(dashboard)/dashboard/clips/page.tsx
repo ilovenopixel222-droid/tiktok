@@ -232,7 +232,8 @@ export default function ClipsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
               >
-                <Card hover className="overflow-hidden p-0 cursor-pointer" onClick={() => setSelectedClip(clip)}>
+                <div onClick={() => setSelectedClip(clip)} className="cursor-pointer">
+                <Card hover className="overflow-hidden p-0">
                   <div className={`relative aspect-[9/12] bg-gradient-to-br ${gradients[i % gradients.length]} flex items-center justify-center`}>
                     <Play className="h-12 w-12 text-white/80" />
                     <div className="absolute top-3 left-3 flex gap-1.5">
@@ -280,6 +281,7 @@ export default function ClipsPage() {
                     </div>
                   </div>
                 </Card>
+                </div>
               </motion.div>
             ))}
           </div>
