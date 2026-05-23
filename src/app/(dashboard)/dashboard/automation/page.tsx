@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Bot, Zap, Monitor, Link2,
   Settings2, Clock, TrendingUp, Sparkles, Bell,
-  Shield, CheckCircle2, Loader2, ExternalLink
+  Shield, CheckCircle2, Loader2, ExternalLink, AlertCircle
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,20 +27,47 @@ const sourceIntegrations = [
 export default function AutomationPage() {
   const [tiktokConnected, setTiktokConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [tiktokError, setTiktokError] = useState<string | null>(null);
+  const [tiktokOpenId, setTiktokOpenId] = useState<string | null>(null);
+
+  const handleTikTokMessage = useCallback((event: MessageEvent) => {
+    if (event.data?.type === "tiktok_success") {
+      setTiktokConnected(true);
+      setTiktokOpenId(event.data.openId || null);
+      setConnecting(false);
+      setTiktokError(null);
+    } else if (event.data?.type === "tiktok_error") {
+      setTiktokConnected(false);
+      setConnecting(false);
+      setTiktokError(event.data.error || "Connection failed");
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("message", handleTikTokMessage);
+    return () => window.removeEventListener("message", handleTikTokMessage);
+  }, [handleTikTokMessage]);
 
   const handleTikTokConnect = async () => {
     setConnecting(true);
+    setTiktokError(null);
     try {
       const res = await fetch("/api/tiktok/auth");
       const data = await res.json();
+      if (data.error) {
+        setTiktokError(data.error);
+        setConnecting(false);
+        return;
+      }
       if (data.authUrl) {
-        window.open(data.authUrl, "_blank", "width=600,height=700");
-      } else {
-        setTiktokConnected(true);
+        const popup = window.open(data.authUrl, "tiktok_auth", "width=600,height=700,scrollbars=yes");
+        if (!popup) {
+          setTiktokError("Popup blocked. Please allow popups for this site and try again.");
+          setConnecting(false);
+        }
       }
     } catch {
-      setTiktokConnected(false);
-    } finally {
+      setTiktokError("Failed to start TikTok connection. Please try again.");
       setConnecting(false);
     }
   };
@@ -100,6 +127,18 @@ export default function AutomationPage() {
             )}
           </div>
 
+          {tiktokError && (
+            <div className="mt-4 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+              <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-red-300">{tiktokError}</p>
+              </div>
+              <button onClick={() => setTiktokError(null)} className="text-red-400 hover:text-red-300 text-xs">
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {tiktokConnected && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
@@ -116,8 +155,8 @@ export default function AutomationPage() {
                   <p className="text-xs text-muted">Clips Posted</p>
                 </div>
                 <div className="rounded-xl bg-white/[0.04] p-3 text-center">
-                  <p className="text-lg font-bold">—</p>
-                  <p className="text-xs text-muted">Next Scheduled</p>
+                  <p className="text-lg font-bold truncate px-1">{tiktokOpenId ? `ID: ${tiktokOpenId.substring(0, 8)}...` : "—"}</p>
+                  <p className="text-xs text-muted">TikTok Account</p>
                 </div>
               </div>
             </motion.div>
