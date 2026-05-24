@@ -4,6 +4,29 @@ import { promisify } from "util";
 import { writeFile, readFile, unlink, access } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
+import https from "https";
+import http from "http";
+
+async function downloadFile(url: string): Promise<Buffer> {
+  if (url.includes("assemblyai.com") || url.includes("cdn.assemblyai")) {
+    return new Promise((resolve, reject) => {
+      const mod = url.startsWith("https") ? https : http;
+      mod.get(url, { rejectUnauthorized: false }, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          downloadFile(res.headers.location).then(resolve).catch(reject);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => resolve(Buffer.concat(chunks)));
+        res.on("error", reject);
+      }).on("error", reject);
+    });
+  }
+  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
 
 export const maxDuration = 300;
 
@@ -74,18 +97,7 @@ export async function POST(request: NextRequest) {
   const inputFile = join(tmpDir, `input_${ts}.tmp`);
 
   try {
-    const audioRes = await fetch(sourceUrl, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-    });
-
-    if (!audioRes.ok) {
-      return Response.json(
-        { error: `Failed to download source: ${audioRes.status}` },
-        { status: 502 }
-      );
-    }
-
-    const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
+    const audioBuffer = await downloadFile(sourceUrl);
     await writeFile(inputFile, audioBuffer);
 
     const outputFormat = format || "mp4";
