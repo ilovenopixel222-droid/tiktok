@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Topbar } from "@/components/dashboard/topbar";
 import { formatNumber, getViralScoreColor } from "@/lib/utils";
+import { getAudioFile } from "@/lib/audio-store";
+import { extractClipFromBlob } from "@/lib/clip-generator";
 
 interface Clip {
   id: string;
@@ -176,85 +178,145 @@ export default function ClipsPage() {
     setPlaybackProgress(0);
   }, []);
 
-  const handlePreviewClip = useCallback((clip: Clip) => {
+  const handlePreviewClip = useCallback(async (clip: Clip) => {
     if (isPlaying) {
       stopPlayback();
       return;
     }
 
-    if (!clip.sourceUrl || clip.startTime === undefined || clip.endTime === undefined) {
-      showToast("No audio source available for this clip");
+    if (clip.startTime === undefined || clip.endTime === undefined) {
+      showToast("No timestamp data for this clip");
       return;
     }
 
-    const proxyUrl = `/api/audio-proxy?url=${encodeURIComponent(clip.sourceUrl)}`;
-    const startSec = clip.startTime / 1000;
-    const endSec = clip.endTime / 1000;
-    const duration = endSec - startSec;
+    try {
+      // Try client-side: read from IndexedDB
+      const sourceBlob = clip.sourceUrl ? await getAudioFile(clip.sourceUrl).catch(() => null) : null;
 
-    const audio = new Audio(proxyUrl);
-    audioRef.current = audio;
+      if (sourceBlob) {
+        const clipBlob = await extractClipFromBlob(sourceBlob, clip.startTime, clip.endTime);
+        const clipUrl = URL.createObjectURL(clipBlob);
+        const audio = new Audio(clipUrl);
+        audioRef.current = audio;
+        const duration = (clip.endTime - clip.startTime) / 1000;
 
-    audio.addEventListener("canplay", () => {
-      audio.currentTime = startSec;
-      audio.play();
-      setIsPlaying(true);
+        audio.addEventListener("canplay", () => {
+          audio.play();
+          setIsPlaying(true);
+          playbackTimerRef.current = setInterval(() => {
+            if (audio.ended || audio.currentTime >= duration) {
+              stopPlayback();
+              URL.revokeObjectURL(clipUrl);
+            } else {
+              setPlaybackProgress((audio.currentTime / duration) * 100);
+            }
+          }, 100);
+        }, { once: true });
 
-      playbackTimerRef.current = setInterval(() => {
-        if (audio.currentTime >= endSec) {
+        audio.addEventListener("error", () => {
+          showToast("Failed to play audio");
           stopPlayback();
-        } else {
-          const elapsed = audio.currentTime - startSec;
-          setPlaybackProgress((elapsed / duration) * 100);
-        }
-      }, 100);
-    }, { once: true });
+          URL.revokeObjectURL(clipUrl);
+        }, { once: true });
 
-    audio.addEventListener("error", () => {
-      showToast("Failed to load audio for preview");
+        audio.load();
+        return;
+      }
+
+      // Fallback: try server proxy
+      if (clip.sourceUrl) {
+        const proxyUrl = `/api/audio-proxy?url=${encodeURIComponent(clip.sourceUrl)}`;
+        const startSec = clip.startTime / 1000;
+        const endSec = clip.endTime / 1000;
+        const duration = endSec - startSec;
+
+        const audio = new Audio(proxyUrl);
+        audioRef.current = audio;
+
+        audio.addEventListener("canplay", () => {
+          audio.currentTime = startSec;
+          audio.play();
+          setIsPlaying(true);
+          playbackTimerRef.current = setInterval(() => {
+            if (audio.currentTime >= endSec) { stopPlayback(); }
+            else { setPlaybackProgress(((audio.currentTime - startSec) / duration) * 100); }
+          }, 100);
+        }, { once: true });
+
+        audio.addEventListener("error", () => {
+          showToast("Failed to load audio");
+          stopPlayback();
+        }, { once: true });
+
+        audio.load();
+        return;
+      }
+
+      showToast("No audio source available for this clip");
+    } catch {
+      showToast("Failed to preview clip");
       stopPlayback();
-    }, { once: true });
-
-    audio.load();
+    }
   }, [isPlaying, stopPlayback]);
 
   const handleDownloadClip = useCallback(async (clip: Clip) => {
-    if (!clip.sourceUrl || clip.startTime === undefined || clip.endTime === undefined) {
-      showToast("No audio source available for download");
+    if (clip.startTime === undefined || clip.endTime === undefined) {
+      showToast("No timestamp data for download");
       return;
     }
 
     setDownloading(clip.id);
-    showToast("Generating clip... this may take a moment");
+    showToast("Generating clip...");
 
     try {
-      const res = await fetch("/api/clip-extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceUrl: clip.sourceUrl,
-          startMs: clip.startTime,
-          endMs: clip.endTime,
-          title: clip.title,
-          format: "mp4",
-        }),
-      });
+      // Try client-side extraction from IndexedDB
+      const sourceBlob = clip.sourceUrl ? await getAudioFile(clip.sourceUrl).catch(() => null) : null;
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Download failed" }));
-        throw new Error(err.error || "Download failed");
+      if (sourceBlob) {
+        const clipBlob = await extractClipFromBlob(sourceBlob, clip.startTime, clip.endTime);
+        const url = URL.createObjectURL(clipBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${clip.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.wav`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast("Clip downloaded!");
+        return;
       }
 
-      const blob = await res.blob();
-      const contentType = res.headers.get("Content-Type") || "";
-      const ext = contentType.includes("video") ? "mp4" : "mp3";
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${clip.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.${ext}`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast("Clip downloaded!");
+      // Fallback: try server-side extraction
+      if (clip.sourceUrl) {
+        const res = await fetch("/api/clip-extract", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceUrl: clip.sourceUrl,
+            startMs: clip.startTime,
+            endMs: clip.endTime,
+            title: clip.title,
+            format: "mp4",
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Download failed" }));
+          throw new Error(err.error || "Download failed");
+        }
+
+        const blob = await res.blob();
+        const contentType = res.headers.get("Content-Type") || "";
+        const ext = contentType.includes("video") ? "mp4" : "mp3";
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${clip.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.${ext}`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast("Clip downloaded!");
+        return;
+      }
+
+      showToast("No audio source available. Please re-upload the file.");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Download failed";
       showToast(`Error: ${msg}`);
@@ -566,7 +628,7 @@ export default function ClipsPage() {
               )}
 
               {/* Audio Preview & Download */}
-              {selectedClip.sourceUrl && (
+              {(selectedClip.sourceUrl || selectedClip.startTime !== undefined) && (
                 <div className="mb-6 rounded-xl bg-gradient-to-r from-cyan-500/10 to-purple-500/10 border border-white/10 p-4">
                   <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                     <Volume2 className="h-4 w-4 text-cyan-400" />

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Topbar } from "@/components/dashboard/topbar";
+import { storeAudioFile } from "@/lib/audio-store";
 
 const platforms = [
   { name: "YouTube", icon: PlayCircle, color: "from-red-500 to-red-600", placeholder: "https://youtube.com/watch?v=..." },
@@ -197,6 +198,18 @@ export default function UploadPage() {
       // Replace clips in localStorage so dashboard shows latest results
       if (data.clips && Array.isArray(data.clips)) {
         localStorage.setItem("clipviral_clips", JSON.stringify(data.clips));
+
+        // Store the original file in IndexedDB for client-side clip extraction
+        if (mode === "upload" && selectedFile) {
+          const allKeys = new Set<string>();
+          for (const c of data.clips) {
+            if (c.sourceUrl) allKeys.add(c.sourceUrl);
+          }
+          if (processUrl) allKeys.add(processUrl);
+          for (const k of allKeys) {
+            await storeAudioFile(k, selectedFile).catch(() => {});
+          }
+        }
       }
       // Replace video record
       if (data.videoId) {
