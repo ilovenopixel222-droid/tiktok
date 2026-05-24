@@ -71,11 +71,13 @@ export default function UploadPage() {
     );
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
       setError(null);
+      // Store immediately in IndexedDB so clip extraction works later
+      await storeAudioFile("current-source", file).catch(() => {});
     }
   };
 

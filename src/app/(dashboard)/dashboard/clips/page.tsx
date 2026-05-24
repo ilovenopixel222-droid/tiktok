@@ -190,8 +190,11 @@ export default function ClipsPage() {
     }
 
     try {
-      // Try client-side: read from IndexedDB
-      const sourceBlob = clip.sourceUrl ? await getAudioFile(clip.sourceUrl).catch(() => null) : null;
+      // Try client-side: read from IndexedDB (try current-source first, then sourceUrl key)
+      let sourceBlob = await getAudioFile("current-source").catch(() => null);
+      if (!sourceBlob && clip.sourceUrl) {
+        sourceBlob = await getAudioFile(clip.sourceUrl).catch(() => null);
+      }
 
       if (sourceBlob) {
         const clipBlob = await extractClipFromBlob(sourceBlob, clip.startTime, clip.endTime);
@@ -223,36 +226,7 @@ export default function ClipsPage() {
         return;
       }
 
-      // Fallback: try server proxy
-      if (clip.sourceUrl) {
-        const proxyUrl = `/api/audio-proxy?url=${encodeURIComponent(clip.sourceUrl)}`;
-        const startSec = clip.startTime / 1000;
-        const endSec = clip.endTime / 1000;
-        const duration = endSec - startSec;
-
-        const audio = new Audio(proxyUrl);
-        audioRef.current = audio;
-
-        audio.addEventListener("canplay", () => {
-          audio.currentTime = startSec;
-          audio.play();
-          setIsPlaying(true);
-          playbackTimerRef.current = setInterval(() => {
-            if (audio.currentTime >= endSec) { stopPlayback(); }
-            else { setPlaybackProgress(((audio.currentTime - startSec) / duration) * 100); }
-          }, 100);
-        }, { once: true });
-
-        audio.addEventListener("error", () => {
-          showToast("Failed to load audio");
-          stopPlayback();
-        }, { once: true });
-
-        audio.load();
-        return;
-      }
-
-      showToast("No audio source available for this clip");
+      showToast("Source file not found. Please re-upload to enable preview.");
     } catch {
       showToast("Failed to preview clip");
       stopPlayback();
@@ -269,8 +243,11 @@ export default function ClipsPage() {
     showToast("Generating clip...");
 
     try {
-      // Try client-side extraction from IndexedDB
-      const sourceBlob = clip.sourceUrl ? await getAudioFile(clip.sourceUrl).catch(() => null) : null;
+      // Try client-side extraction from IndexedDB (current-source first, then sourceUrl key)
+      let sourceBlob = await getAudioFile("current-source").catch(() => null);
+      if (!sourceBlob && clip.sourceUrl) {
+        sourceBlob = await getAudioFile(clip.sourceUrl).catch(() => null);
+      }
 
       if (sourceBlob) {
         const clipBlob = await extractClipFromBlob(sourceBlob, clip.startTime, clip.endTime);
@@ -278,45 +255,15 @@ export default function ClipsPage() {
         const a = document.createElement("a");
         a.href = url;
         a.download = `${clip.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.wav`;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
         showToast("Clip downloaded!");
         return;
       }
 
-      // Fallback: try server-side extraction
-      if (clip.sourceUrl) {
-        const res = await fetch("/api/clip-extract", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sourceUrl: clip.sourceUrl,
-            startMs: clip.startTime,
-            endMs: clip.endTime,
-            title: clip.title,
-            format: "mp4",
-          }),
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: "Download failed" }));
-          throw new Error(err.error || "Download failed");
-        }
-
-        const blob = await res.blob();
-        const contentType = res.headers.get("Content-Type") || "";
-        const ext = contentType.includes("video") ? "mp4" : "mp3";
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${clip.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.${ext}`;
-        a.click();
-        URL.revokeObjectURL(url);
-        showToast("Clip downloaded!");
-        return;
-      }
-
-      showToast("No audio source available. Please re-upload the file.");
+      showToast("Source file not found. Please re-upload the file to enable downloads.");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Download failed";
       showToast(`Error: ${msg}`);
