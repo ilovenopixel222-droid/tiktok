@@ -177,43 +177,81 @@ export default function UploadPage() {
         processTitle = selectedFile.name.replace(/\.[^/.]+$/, "");
       }
 
-      const res = await fetch("/api/process-video", {
+      // Step 1: Submit to AssemblyAI (fast, returns transcriptId)
+      setSteps((prev) => prev.map((s, i) => i === 1 ? { ...s, label: "Submitting to AssemblyAI..." } : s));
+      const submitRes = await fetch("/api/process-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           videoUrl: processUrl,
           title: processTitle,
           momentTypes: selectedMoments,
-          clipLength: clipSettings[0].options[clipSettings[0].default],
         }),
       });
 
-      if (progressRef.current) clearInterval(progressRef.current);
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(tryParseError(text) || "Processing failed");
+      if (!submitRes.ok) {
+        const text = await submitRes.text();
+        throw new Error(tryParseError(text) || "Submission failed");
       }
 
-      const data = JSON.parse(await res.text());
+      const submitData = await submitRes.json();
+      const { transcriptId, videoId: vid, audioUrl } = submitData;
 
-      // Replace clips in localStorage so dashboard shows latest results
+      if (!transcriptId) throw new Error("No transcript ID returned");
+
+      // Step 2: Poll for transcription completion (client-side polling, no timeout)
+      setSteps((prev) => prev.map((s, i) => i === 1 ? { ...s, label: "Transcribing audio...", done: true } : s));
+      setProgress(20);
+
+      let transcript = null;
+      for (let i = 0; i < 300; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const pollRes = await fetch(`/api/poll-transcription?id=${transcriptId}`);
+        if (!pollRes.ok) throw new Error("Polling failed");
+        const pollData = await pollRes.json();
+
+        if (pollData.status === "completed") {
+          transcript = pollData.transcript;
+          break;
+        }
+        if (pollData.status === "error") {
+          throw new Error(pollData.error || "Transcription failed");
+        }
+
+        const prog = Math.min(20 + i * 0.5, 60);
+        setProgress(Math.round(prog));
+      }
+
+      if (!transcript) throw new Error("Transcription timed out");
+
+      // Step 3: Generate clips from transcript
+      setSteps((prev) => prev.map((s, i) => i === 2 ? { ...s, label: "Detecting viral moments...", done: true } : s));
+      setProgress(70);
+
+      const genRes = await fetch("/api/generate-clips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript,
+          momentTypes: selectedMoments,
+          title: processTitle,
+          videoId: vid,
+          audioUrl,
+        }),
+      });
+
+      if (!genRes.ok) {
+        const text = await genRes.text();
+        throw new Error(tryParseError(text) || "Clip generation failed");
+      }
+
+      if (progressRef.current) clearInterval(progressRef.current);
+      const data = await genRes.json();
+
+      // Store clips in localStorage
       if (data.clips && Array.isArray(data.clips)) {
         localStorage.setItem("clipviral_clips", JSON.stringify(data.clips));
-
-        // Store the original file in IndexedDB for client-side clip extraction
-        if (mode === "upload" && selectedFile) {
-          const allKeys = new Set<string>();
-          for (const c of data.clips) {
-            if (c.sourceUrl) allKeys.add(c.sourceUrl);
-          }
-          if (processUrl) allKeys.add(processUrl);
-          for (const k of allKeys) {
-            await storeAudioFile(k, selectedFile).catch(() => {});
-          }
-        }
       }
-      // Replace video record
       if (data.videoId) {
         localStorage.setItem("clipviral_videos", JSON.stringify([{
           id: data.videoId,
