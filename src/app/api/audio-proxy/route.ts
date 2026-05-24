@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
     if (isAssemblyAI) {
       const { buffer, contentType } = await downloadBuffer(url);
-      return new Response(buffer, {
+      return new Response(new Uint8Array(buffer), {
         status: 200,
         headers: {
           "Content-Type": contentType,
