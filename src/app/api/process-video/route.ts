@@ -216,6 +216,7 @@ export async function POST(request: NextRequest) {
         transcriptSegment: moment.text,
         startTime: moment.start,
         endTime: moment.end,
+        sourceUrl: audioUrl,
       });
 
       store.updateJob(jobId, {

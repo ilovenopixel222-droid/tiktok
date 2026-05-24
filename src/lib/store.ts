@@ -33,6 +33,7 @@ export interface ClipRecord {
   transcriptSegment?: string;
   startTime?: number;
   endTime?: number;
+  sourceUrl?: string;
 }
 
 export interface JobRecord {

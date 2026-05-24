@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Play, Eye, Clock, Sparkles, Download, Share2,
+  Play, Pause, Eye, Clock, Sparkles, Download, Share2,
   Trash2, Grid3X3, List, Search, Upload, FileVideo,
   X, Copy, CheckCircle2, Hash, Type,
-  BarChart3, MessageSquare, Heart
+  BarChart3, MessageSquare, Heart, Volume2, Loader2
 } from "lucide-react";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -32,6 +32,7 @@ interface Clip {
   startTime?: number;
   endTime?: number;
   videoId?: string;
+  sourceUrl?: string;
 }
 
 const gradients = [
@@ -79,6 +80,11 @@ export default function ClipsPage() {
   const [selectedClip, setSelectedClip] = useState<Clip | null>(null);
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [playbackProgress, setPlaybackProgress] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playbackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (clips.length > 0) return;
@@ -155,6 +161,109 @@ export default function ClipsPage() {
     navigator.clipboard.writeText(text);
     showToast("Clip info copied for sharing!");
   };
+
+  const stopPlayback = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+      audioRef.current = null;
+    }
+    if (playbackTimerRef.current) {
+      clearInterval(playbackTimerRef.current);
+      playbackTimerRef.current = null;
+    }
+    setIsPlaying(false);
+    setPlaybackProgress(0);
+  }, []);
+
+  const handlePreviewClip = useCallback((clip: Clip) => {
+    if (isPlaying) {
+      stopPlayback();
+      return;
+    }
+
+    if (!clip.sourceUrl || clip.startTime === undefined || clip.endTime === undefined) {
+      showToast("No audio source available for this clip");
+      return;
+    }
+
+    const proxyUrl = `/api/audio-proxy?url=${encodeURIComponent(clip.sourceUrl)}`;
+    const startSec = clip.startTime / 1000;
+    const endSec = clip.endTime / 1000;
+    const duration = endSec - startSec;
+
+    const audio = new Audio(proxyUrl);
+    audioRef.current = audio;
+
+    audio.addEventListener("canplay", () => {
+      audio.currentTime = startSec;
+      audio.play();
+      setIsPlaying(true);
+
+      playbackTimerRef.current = setInterval(() => {
+        if (audio.currentTime >= endSec) {
+          stopPlayback();
+        } else {
+          const elapsed = audio.currentTime - startSec;
+          setPlaybackProgress((elapsed / duration) * 100);
+        }
+      }, 100);
+    }, { once: true });
+
+    audio.addEventListener("error", () => {
+      showToast("Failed to load audio for preview");
+      stopPlayback();
+    }, { once: true });
+
+    audio.load();
+  }, [isPlaying, stopPlayback]);
+
+  const handleDownloadClip = useCallback(async (clip: Clip) => {
+    if (!clip.sourceUrl || clip.startTime === undefined || clip.endTime === undefined) {
+      showToast("No audio source available for download");
+      return;
+    }
+
+    setDownloading(clip.id);
+    showToast("Generating clip... this may take a moment");
+
+    try {
+      const res = await fetch("/api/clip-extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceUrl: clip.sourceUrl,
+          startMs: clip.startTime,
+          endMs: clip.endTime,
+          title: clip.title,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Download failed" }));
+        throw new Error(err.error || "Download failed");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${clip.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.mp3`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Clip downloaded!");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Download failed";
+      showToast(`Error: ${msg}`);
+    } finally {
+      setDownloading(null);
+    }
+  }, []);
+
+  // Cleanup audio on unmount or clip change
+  useEffect(() => {
+    return () => stopPlayback();
+  }, [selectedClip, stopPlayback]);
 
   return (
     <>
@@ -267,13 +376,25 @@ export default function ClipsPage() {
                       )}
                     </div>
                     <div className="mt-3 flex gap-1.5" onClick={(e) => e.stopPropagation()}>
-                      <Button variant="secondary" size="sm" className="flex-1 text-xs" onClick={() => handleCopyTranscript(clip)}>
-                        <Copy className="h-3 w-3" />
-                        Copy Text
-                      </Button>
-                      <Button variant="secondary" size="sm" className="flex-1 text-xs" onClick={() => handleShareClip(clip)}>
-                        <Share2 className="h-3 w-3" />
-                        Share
+                      {clip.sourceUrl && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="flex-1 text-xs"
+                          onClick={() => handlePreviewClip(clip)}
+                        >
+                          {isPlaying && selectedClip?.id === clip.id ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                          {isPlaying && selectedClip?.id === clip.id ? "Stop" : "Preview"}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        className="flex-1 text-xs"
+                        onClick={() => handleDownloadClip(clip)}
+                        disabled={downloading === clip.id || !clip.sourceUrl}
+                      >
+                        {downloading === clip.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                        {downloading === clip.id ? "..." : "Download"}
                       </Button>
                       <Button variant="ghost" size="sm" className="text-muted hover:text-red-400" onClick={() => handleDeleteClip(clip.id)}>
                         <Trash2 className="h-3 w-3" />
@@ -441,6 +562,54 @@ export default function ClipsPage() {
                 </div>
               )}
 
+              {/* Audio Preview & Download */}
+              {selectedClip.sourceUrl && (
+                <div className="mb-6 rounded-xl bg-gradient-to-r from-cyan-500/10 to-purple-500/10 border border-white/10 p-4">
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <Volume2 className="h-4 w-4 text-cyan-400" />
+                    Audio Preview
+                  </h3>
+                  <div className="flex items-center gap-3 mb-3">
+                    <button
+                      onClick={() => handlePreviewClip(selectedClip)}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/20 hover:bg-primary/30 transition-colors"
+                    >
+                      {isPlaying ? <Pause className="h-4 w-4 text-primary-light" /> : <Play className="h-4 w-4 text-primary-light ml-0.5" />}
+                    </button>
+                    <div className="flex-1">
+                      <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-primary to-secondary transition-all duration-100"
+                          style={{ width: `${playbackProgress}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between mt-1 text-xs text-muted">
+                        <span>{formatTime(selectedClip.startTime)}</span>
+                        <span>{formatTime(selectedClip.endTime)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={() => handleDownloadClip(selectedClip)}
+                    disabled={downloading === selectedClip.id}
+                  >
+                    {downloading === selectedClip.id ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Generating clip with FFmpeg...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-4 w-4" />
+                        Download Clip as MP3
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+
               {/* Transcript */}
               {selectedClip.transcriptSegment && (
                 <div className="mb-6 rounded-xl bg-white/[0.04] border border-white/10 p-4">
@@ -494,21 +663,27 @@ export default function ClipsPage() {
 
               {/* Action Buttons */}
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => handleCopyTranscript(selectedClip)}>
+                {selectedClip.sourceUrl && (
+                  <Button
+                    size="sm"
+                    onClick={() => handleDownloadClip(selectedClip)}
+                    disabled={downloading === selectedClip.id}
+                  >
+                    {downloading === selectedClip.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    {downloading === selectedClip.id ? "Generating..." : "Download MP3"}
+                  </Button>
+                )}
+                <Button variant="secondary" size="sm" onClick={() => handleCopyTranscript(selectedClip)}>
                   <Copy className="h-4 w-4" />
-                  Copy Transcript
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => handleExportClip(selectedClip)}>
-                  <Download className="h-4 w-4" />
-                  Export Data
+                  Copy Text
                 </Button>
                 <Button variant="secondary" size="sm" onClick={() => handleShareClip(selectedClip)}>
                   <Share2 className="h-4 w-4" />
                   Share
                 </Button>
-                <Button variant="secondary" size="sm" onClick={() => handleCopyTitle(selectedClip)}>
-                  <Type className="h-4 w-4" />
-                  Copy Title
+                <Button variant="secondary" size="sm" onClick={() => handleExportClip(selectedClip)}>
+                  <Download className="h-4 w-4" />
+                  Export JSON
                 </Button>
                 <Button
                   variant="ghost"
