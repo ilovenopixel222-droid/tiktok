@@ -10,7 +10,6 @@ export const maxDuration = 300;
 const execFileAsync = promisify(execFile);
 
 async function findFfmpeg(): Promise<string | null> {
-  // Try ffmpeg-static first
   try {
     const ffmpegStatic = (await import("ffmpeg-static")).default;
     if (typeof ffmpegStatic === "string") {
@@ -19,7 +18,6 @@ async function findFfmpeg(): Promise<string | null> {
     }
   } catch {}
 
-  // Try system ffmpeg
   try {
     await execFileAsync("ffmpeg", ["-version"]);
     return "ffmpeg";
@@ -28,13 +26,30 @@ async function findFfmpeg(): Promise<string | null> {
   return null;
 }
 
+async function hasVideoStream(ffmpegPath: string, inputFile: string): Promise<boolean> {
+  try {
+    const ffprobePath = ffmpegPath === "ffmpeg" ? "ffprobe" : ffmpegPath.replace("ffmpeg", "ffprobe");
+    const { stdout } = await execFileAsync(ffprobePath, [
+      "-v", "error",
+      "-select_streams", "v:0",
+      "-show_entries", "stream=codec_type",
+      "-of", "csv=p=0",
+      inputFile,
+    ], { timeout: 10000 });
+    return stdout.trim().includes("video");
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { sourceUrl, startMs, endMs, title } = body as {
+  const { sourceUrl, startMs, endMs, title, format } = body as {
     sourceUrl: string;
     startMs: number;
     endMs: number;
     title?: string;
+    format?: "mp4" | "mp3";
   };
 
   if (!sourceUrl || startMs === undefined || endMs === undefined) {
@@ -55,18 +70,17 @@ export async function POST(request: NextRequest) {
   const startSec = startMs / 1000;
   const durationSec = (endMs - startMs) / 1000;
   const tmpDir = tmpdir();
-  const inputFile = join(tmpDir, `input_${Date.now()}.tmp`);
-  const outputFile = join(tmpDir, `clip_${Date.now()}.mp3`);
+  const ts = Date.now();
+  const inputFile = join(tmpDir, `input_${ts}.tmp`);
 
   try {
-    // Download source audio
     const audioRes = await fetch(sourceUrl, {
       headers: { "User-Agent": "Mozilla/5.0" },
     });
 
     if (!audioRes.ok) {
       return Response.json(
-        { error: `Failed to download source audio: ${audioRes.status}` },
+        { error: `Failed to download source: ${audioRes.status}` },
         { status: 502 }
       );
     }
@@ -74,22 +88,56 @@ export async function POST(request: NextRequest) {
     const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
     await writeFile(inputFile, audioBuffer);
 
-    // Extract clip with FFmpeg
-    await execFileAsync(ffmpegPath, [
-      "-y",
-      "-i", inputFile,
-      "-ss", startSec.toString(),
-      "-t", durationSec.toString(),
-      "-vn",
-      "-acodec", "libmp3lame",
-      "-ab", "192k",
-      "-ar", "44100",
-      outputFile,
-    ], { timeout: 120000 });
+    const outputFormat = format || "mp4";
+    const hasVideo = await hasVideoStream(ffmpegPath, inputFile);
+
+    let outputFile: string;
+    let ffmpegArgs: string[];
+    let contentType: string;
+    let fileExt: string;
+
+    if (hasVideo && outputFormat === "mp4") {
+      outputFile = join(tmpDir, `clip_${ts}.mp4`);
+      fileExt = "mp4";
+      contentType = "video/mp4";
+      ffmpegArgs = [
+        "-y",
+        "-i", inputFile,
+        "-ss", startSec.toString(),
+        "-t", durationSec.toString(),
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-movflags", "+faststart",
+        "-vf", "scale='min(1080,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease",
+        outputFile,
+      ];
+    } else {
+      outputFile = join(tmpDir, `clip_${ts}.mp3`);
+      fileExt = "mp3";
+      contentType = "audio/mpeg";
+      ffmpegArgs = [
+        "-y",
+        "-i", inputFile,
+        "-ss", startSec.toString(),
+        "-t", durationSec.toString(),
+        "-vn",
+        "-acodec", "libmp3lame",
+        "-ab", "192k",
+        "-ar", "44100",
+        outputFile,
+      ];
+    }
+
+    await execFileAsync(ffmpegPath, ffmpegArgs, {
+      timeout: 180000,
+      maxBuffer: 50 * 1024 * 1024,
+    });
 
     const clipBuffer = await readFile(outputFile);
 
-    // Clean up temp files
     await unlink(inputFile).catch(() => {});
     await unlink(outputFile).catch(() => {});
 
@@ -98,16 +146,14 @@ export async function POST(request: NextRequest) {
     return new Response(clipBuffer, {
       status: 200,
       headers: {
-        "Content-Type": "audio/mpeg",
-        "Content-Disposition": `attachment; filename="${safeName}.mp3"`,
+        "Content-Type": contentType,
+        "Content-Disposition": `attachment; filename="${safeName}.${fileExt}"`,
         "Content-Length": clipBuffer.length.toString(),
         "Access-Control-Allow-Origin": "*",
       },
     });
   } catch (err) {
-    // Clean up on error
     await unlink(inputFile).catch(() => {});
-    await unlink(outputFile).catch(() => {});
 
     const msg = err instanceof Error ? err.message : "Clip extraction failed";
     return Response.json({ error: msg }, { status: 500 });

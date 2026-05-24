@@ -236,6 +236,7 @@ export default function ClipsPage() {
           startMs: clip.startTime,
           endMs: clip.endTime,
           title: clip.title,
+          format: "mp4",
         }),
       });
 
@@ -245,10 +246,12 @@ export default function ClipsPage() {
       }
 
       const blob = await res.blob();
+      const contentType = res.headers.get("Content-Type") || "";
+      const ext = contentType.includes("video") ? "mp4" : "mp3";
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${clip.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.mp3`;
+      a.download = `${clip.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
       showToast("Clip downloaded!");
@@ -603,7 +606,7 @@ export default function ClipsPage() {
                     ) : (
                       <>
                         <Download className="h-4 w-4" />
-                        Download Clip as MP3
+                        Download Clip
                       </>
                     )}
                   </Button>
@@ -670,7 +673,7 @@ export default function ClipsPage() {
                     disabled={downloading === selectedClip.id}
                   >
                     {downloading === selectedClip.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                    {downloading === selectedClip.id ? "Generating..." : "Download MP3"}
+                    {downloading === selectedClip.id ? "Generating..." : "Download"}
                   </Button>
                 )}
                 <Button variant="secondary" size="sm" onClick={() => handleCopyTranscript(selectedClip)}>

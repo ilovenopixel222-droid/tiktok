@@ -62,7 +62,6 @@ export async function POST(request: NextRequest) {
     videoId?: string;
     title?: string;
     momentTypes?: string[];
-    clipLength?: string;
   };
 
   try {
@@ -71,7 +70,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { videoUrl, title, momentTypes, clipLength } = body;
+  const { videoUrl, title, momentTypes } = body;
 
   if (!videoUrl) {
     return Response.json({ error: "videoUrl is required" }, { status: 400 });
@@ -193,11 +192,10 @@ export async function POST(request: NextRequest) {
     });
 
     // Step 4: Create clip records
-    const clipDuration = clipLength === "15-30s" ? 25 : clipLength === "60-90s" ? 75 : 45;
-
     for (let i = 0; i < moments.length; i++) {
       const moment = moments[i];
       const clipId = `clip_${Date.now()}_${i}`;
+      const actualDuration = Math.round((moment.end - moment.start) / 1000);
 
       store.addClip({
         id: clipId,
@@ -209,7 +207,7 @@ export async function POST(request: NextRequest) {
         comments: 0,
         status: "ready",
         platform: "TikTok",
-        duration: formatDuration(clipDuration),
+        duration: formatDuration(actualDuration),
         moment: moment.type,
         date: new Date().toISOString().split("T")[0],
         thumbnail: `gradient-${(i % 9) + 1}`,
@@ -266,6 +264,91 @@ interface TranscriptMoment {
   viralScore: number;
 }
 
+const MIN_CLIP_MS = 15000;
+const MAX_CLIP_MS = 60000;
+const IDEAL_CLIP_MS = 35000;
+const OVERLAP_THRESHOLD_MS = 8000;
+
+interface ScoredSegment {
+  text: string;
+  start: number;
+  end: number;
+  type: string;
+  confidence: number;
+  keywordHits: number;
+  sentimentIntensity: number;
+  lengthScore: number;
+}
+
+const PATTERNS: Array<{ keywords: string[]; type: string; weight: number }> = [
+  { keywords: ["crazy", "insane", "wild", "omg", "what the", "no way", "oh my god", "holy", "unreal", "are you serious", "you're kidding", "i can't believe"], type: "Shocking", weight: 1.2 },
+  { keywords: ["haha", "lol", "funny", "laugh", "hilarious", "joke", "comedy", "bro what", "i'm dead", "that's so", "bruh"], type: "Funny", weight: 1.15 },
+  { keywords: ["disagree", "wrong", "debate", "argue", "but actually", "that's not", "i don't think", "you're wrong", "hold on", "wait what", "no no no"], type: "Debate", weight: 1.1 },
+  { keywords: ["story", "remember", "one time", "back when", "let me tell", "so basically", "what happened was", "true story", "i'll never forget", "picture this"], type: "Storytelling", weight: 1.05 },
+  { keywords: ["angry", "rage", "frustrated", "pissed", "mad", "furious", "so annoying", "sick of", "i hate", "this is bs"], type: "Rage", weight: 1.1 },
+  { keywords: ["motivat", "inspire", "never give up", "you can", "believe in", "keep going", "don't quit", "push through", "you got this", "trust the process"], type: "Motivational", weight: 1.0 },
+  { keywords: ["fail", "messed up", "disaster", "went wrong", "oops", "broken", "scuffed", "glitched", "crashed", "ruined"], type: "Stream Fail", weight: 1.15 },
+  { keywords: ["emotional", "crying", "tears", "so sad", "heartbreak", "i miss", "it hurts", "i love you", "thank you so much", "that means"], type: "Emotional", weight: 1.05 },
+  { keywords: ["controversial", "hot take", "unpopular opinion", "people don't realize", "nobody talks about", "here's the thing"], type: "Controversial", weight: 1.1 },
+];
+
+function computeViralScore(seg: ScoredSegment): number {
+  const keywordFactor = Math.min(seg.keywordHits * 8, 30);
+  const sentimentFactor = seg.sentimentIntensity * 25;
+  const confidenceFactor = seg.confidence * 15;
+  const lengthFactor = seg.lengthScore * 15;
+  const baseFactor = 15;
+
+  const pattern = PATTERNS.find((p) => p.type === seg.type);
+  const weight = pattern?.weight || 1.0;
+
+  const raw = (baseFactor + keywordFactor + sentimentFactor + confidenceFactor + lengthFactor) * weight;
+  return Math.min(99, Math.max(40, Math.round(raw)));
+}
+
+function scoreLength(durationMs: number): number {
+  if (durationMs < MIN_CLIP_MS) return 0.3;
+  if (durationMs > MAX_CLIP_MS) return 0.5;
+  const dist = Math.abs(durationMs - IDEAL_CLIP_MS) / IDEAL_CLIP_MS;
+  return Math.max(0.4, 1.0 - dist);
+}
+
+function buildClipWindow(
+  words: Array<{ text: string; start: number; end: number }>,
+  anchorIdx: number,
+): { start: number; end: number; text: string } | null {
+  if (words.length === 0) return null;
+
+  const anchor = words[anchorIdx];
+  const targetStart = anchor.start - IDEAL_CLIP_MS / 2;
+  const targetEnd = anchor.start + IDEAL_CLIP_MS / 2;
+
+  let startIdx = anchorIdx;
+  while (startIdx > 0 && words[startIdx - 1].start >= targetStart) startIdx--;
+
+  let endIdx = anchorIdx;
+  while (endIdx < words.length - 1 && words[endIdx + 1].end <= targetEnd) endIdx++;
+
+  const clipStart = words[startIdx].start;
+  const clipEnd = words[endIdx].end;
+  const duration = clipEnd - clipStart;
+
+  if (duration < MIN_CLIP_MS && endIdx < words.length - 1) {
+    const needed = MIN_CLIP_MS - duration;
+    while (endIdx < words.length - 1 && words[endIdx + 1].end - clipStart <= MAX_CLIP_MS) {
+      endIdx++;
+      if (words[endIdx].end - clipStart >= duration + needed) break;
+    }
+  }
+
+  const finalStart = words[startIdx].start;
+  const finalEnd = words[endIdx].end;
+  if (finalEnd - finalStart < MIN_CLIP_MS * 0.7) return null;
+
+  const text = words.slice(startIdx, endIdx + 1).map((w) => w.text).join(" ");
+  return { start: finalStart, end: finalEnd, text: text.substring(0, 300) };
+}
+
 function detectMomentsFromTranscript(
   transcript: {
     utterances?: Array<{ text: string; start: number; end: number; confidence: number }>;
@@ -275,115 +358,149 @@ function detectMomentsFromTranscript(
   },
   momentTypes?: string[],
 ): TranscriptMoment[] {
-  const moments: TranscriptMoment[] = [];
   const types = momentTypes || [];
+  const candidates: ScoredSegment[] = [];
+  const words = transcript.words || [];
 
-  // Method 1: Sentiment-based detection
-  const sentiments = transcript.sentiment_analysis_results || [];
-  for (const s of sentiments) {
-    if (s.sentiment === "POSITIVE" && s.confidence > 0.5) {
-      moments.push({
-        text: s.text,
-        start: s.start,
-        end: s.end,
-        type: "Emotional",
-        confidence: s.confidence,
-        viralScore: Math.round(s.confidence * 85 + Math.random() * 15),
-      });
-    }
-    if (s.sentiment === "NEGATIVE" && s.confidence > 0.5) {
-      moments.push({
-        text: s.text,
-        start: s.start,
-        end: s.end,
-        type: "Controversial",
-        confidence: s.confidence,
-        viralScore: Math.round(s.confidence * 80 + Math.random() * 15),
-      });
+  const sentimentMap = new Map<number, { sentiment: string; confidence: number }>();
+  for (const s of (transcript.sentiment_analysis_results || [])) {
+    const bucket = Math.floor(s.start / 5000);
+    const existing = sentimentMap.get(bucket);
+    if (!existing || s.confidence > existing.confidence) {
+      sentimentMap.set(bucket, { sentiment: s.sentiment, confidence: s.confidence });
     }
   }
 
-  // Method 2: Utterance pattern-based detection
-  if (transcript.utterances) {
-    for (const u of transcript.utterances) {
-      const text = u.text.toLowerCase();
-      const patterns: Array<{ keywords: string[]; type: string; baseScore: number }> = [
-        { keywords: ["crazy", "insane", "wild", "omg", "what the", "no way", "oh my god"], type: "Shocking", baseScore: 82 },
-        { keywords: ["haha", "lol", "funny", "laugh", "hilarious", "joke", "😂"], type: "Funny", baseScore: 85 },
-        { keywords: ["think", "believe", "opinion", "disagree", "wrong", "debate", "argue"], type: "Debate", baseScore: 75 },
-        { keywords: ["story", "remember", "one time", "back when", "let me tell", "so basically"], type: "Storytelling", baseScore: 78 },
-        { keywords: ["angry", "rage", "frustrated", "pissed", "mad", "furious"], type: "Rage", baseScore: 80 },
-        { keywords: ["motivat", "inspire", "never give up", "you can", "believe in", "keep going"], type: "Motivational", baseScore: 77 },
-        { keywords: ["fail", "messed up", "disaster", "went wrong", "oops", "broken"], type: "Stream Fail", baseScore: 83 },
-        { keywords: ["love", "amazing", "best", "incredible", "awesome", "beautiful"], type: "Highlight", baseScore: 76 },
-      ];
+  function getSentimentAt(timeMs: number): number {
+    const bucket = Math.floor(timeMs / 5000);
+    const s = sentimentMap.get(bucket);
+    if (!s) return 0.5;
+    if (s.sentiment === "POSITIVE") return 0.5 + s.confidence * 0.5;
+    if (s.sentiment === "NEGATIVE") return 0.5 + s.confidence * 0.4;
+    return 0.4;
+  }
 
-      for (const pattern of patterns) {
-        if (pattern.keywords.some((k) => text.includes(k))) {
-          if (types.length === 0 || types.some((t) => t.toLowerCase().includes(pattern.type.toLowerCase()))) {
-            moments.push({
-              text: u.text,
-              start: u.start,
-              end: u.end,
-              type: pattern.type,
-              confidence: u.confidence,
-              viralScore: Math.round(pattern.baseScore + Math.random() * 15),
-            });
-          }
+  // Scan utterances for keyword patterns
+  const utterances = transcript.utterances || [];
+  for (const u of utterances) {
+    const textLower = u.text.toLowerCase();
+    for (const pattern of PATTERNS) {
+      const hits = pattern.keywords.filter((k) => textLower.includes(k)).length;
+      if (hits === 0) continue;
+      if (types.length > 0 && !types.some((t) => t.toLowerCase().includes(pattern.type.toLowerCase()))) continue;
+
+      // Expand to a proper clip window using word-level timestamps
+      let clipWindow: { start: number; end: number; text: string } | null = null;
+      if (words.length > 0) {
+        const anchorTime = (u.start + u.end) / 2;
+        let closestIdx = 0;
+        let closestDist = Infinity;
+        for (let i = 0; i < words.length; i++) {
+          const dist = Math.abs(words[i].start - anchorTime);
+          if (dist < closestDist) { closestDist = dist; closestIdx = i; }
         }
+        clipWindow = buildClipWindow(words, closestIdx);
       }
+
+      const start = clipWindow?.start ?? u.start;
+      const end = clipWindow?.end ?? u.end;
+      const text = clipWindow?.text ?? u.text;
+      const duration = end - start;
+
+      candidates.push({
+        text,
+        start,
+        end,
+        type: pattern.type,
+        confidence: u.confidence,
+        keywordHits: hits,
+        sentimentIntensity: getSentimentAt(u.start),
+        lengthScore: scoreLength(duration),
+      });
     }
   }
 
-  // Method 3: If very few moments found, create segments from transcript text
-  if (moments.length < 3 && transcript.words && transcript.words.length > 0) {
-    const words = transcript.words;
-    const segmentDuration = 30000; // 30 seconds
-    let segStart = words[0].start;
-    let segWords: string[] = [];
+  // Scan high-sentiment regions not already covered
+  for (const s of (transcript.sentiment_analysis_results || [])) {
+    if (s.confidence < 0.7) continue;
+    const alreadyCovered = candidates.some(
+      (c) => Math.abs(c.start - s.start) < OVERLAP_THRESHOLD_MS
+    );
+    if (alreadyCovered) continue;
 
-    for (const word of words) {
-      segWords.push(word.text);
-      if (word.end - segStart >= segmentDuration) {
-        const segText = segWords.join(" ");
-        if (segText.length > 50) {
-          moments.push({
-            text: segText.substring(0, 200),
-            start: segStart,
-            end: word.end,
-            type: "Highlight",
-            confidence: 0.7,
-            viralScore: Math.round(65 + Math.random() * 25),
+    if (words.length > 0) {
+      let closestIdx = 0;
+      let closestDist = Infinity;
+      for (let i = 0; i < words.length; i++) {
+        const dist = Math.abs(words[i].start - s.start);
+        if (dist < closestDist) { closestDist = dist; closestIdx = i; }
+      }
+      const clipWindow = buildClipWindow(words, closestIdx);
+      if (clipWindow) {
+        const momentType = s.sentiment === "POSITIVE" ? "Emotional"
+          : s.sentiment === "NEGATIVE" ? "Controversial" : "Highlight";
+        if (types.length === 0 || types.some((t) => t.toLowerCase().includes(momentType.toLowerCase()))) {
+          candidates.push({
+            text: clipWindow.text,
+            start: clipWindow.start,
+            end: clipWindow.end,
+            type: momentType,
+            confidence: s.confidence,
+            keywordHits: 0,
+            sentimentIntensity: s.confidence,
+            lengthScore: scoreLength(clipWindow.end - clipWindow.start),
           });
         }
-        segStart = word.end;
-        segWords = [];
       }
     }
+  }
 
-    if (segWords.length > 10) {
-      const segText = segWords.join(" ");
-      moments.push({
-        text: segText.substring(0, 200),
-        start: segStart,
-        end: words[words.length - 1].end,
-        type: "Highlight",
-        confidence: 0.6,
-        viralScore: Math.round(60 + Math.random() * 25),
-      });
+  // Fallback: evenly spaced segments if very few candidates
+  if (candidates.length < 2 && words.length > 0) {
+    const totalDuration = words[words.length - 1].end - words[0].start;
+    const numSegments = Math.min(5, Math.max(2, Math.floor(totalDuration / IDEAL_CLIP_MS)));
+    const step = Math.floor(words.length / numSegments);
+
+    for (let i = 0; i < numSegments; i++) {
+      const anchorIdx = Math.min(i * step + Math.floor(step / 2), words.length - 1);
+      const clipWindow = buildClipWindow(words, anchorIdx);
+      if (clipWindow) {
+        candidates.push({
+          text: clipWindow.text,
+          start: clipWindow.start,
+          end: clipWindow.end,
+          type: "Highlight",
+          confidence: 0.6,
+          keywordHits: 0,
+          sentimentIntensity: getSentimentAt(words[anchorIdx].start),
+          lengthScore: scoreLength(clipWindow.end - clipWindow.start),
+        });
+      }
     }
   }
 
-  // Deduplicate by time overlap
+  // Score, deduplicate, and sort
+  const scored = candidates.map((c) => ({
+    text: c.text,
+    start: c.start,
+    end: c.end,
+    type: c.type,
+    confidence: c.confidence,
+    viralScore: computeViralScore(c),
+  }));
+
+  scored.sort((a, b) => b.viralScore - a.viralScore);
+
   const unique: TranscriptMoment[] = [];
-  for (const m of moments.sort((a, b) => b.viralScore - a.viralScore)) {
+  for (const m of scored) {
     const overlaps = unique.some(
-      (u) => Math.abs(u.start - m.start) < 10000 && Math.abs(u.end - m.end) < 10000
+      (u) => !(m.end <= u.start + OVERLAP_THRESHOLD_MS || m.start >= u.end - OVERLAP_THRESHOLD_MS)
     );
     if (!overlaps) unique.push(m);
+    if (unique.length >= 10) break;
   }
 
-  return unique.slice(0, 15);
+  return unique;
 }
 
 function generateClipTitle(moment: TranscriptMoment): string {
