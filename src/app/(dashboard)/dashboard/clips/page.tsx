@@ -85,8 +85,10 @@ export default function ClipsPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [playbackProgress, setPlaybackProgress] = useState(0);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const playbackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const playbackStartRef = useRef<number>(0);
 
   useEffect(() => {
     if (clips.length > 0) return;
@@ -165,10 +167,13 @@ export default function ClipsPage() {
   };
 
   const stopPlayback = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-      audioRef.current = null;
+    if (sourceNodeRef.current) {
+      try { sourceNodeRef.current.stop(); } catch { /* already stopped */ }
+      sourceNodeRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
     }
     if (playbackTimerRef.current) {
       clearInterval(playbackTimerRef.current);
@@ -227,32 +232,54 @@ export default function ClipsPage() {
       const sourceBlob = await getSourceBlob(clip);
 
       if (sourceBlob) {
-        const clipBlob = await extractClipFromBlob(sourceBlob, clip.startTime, clip.endTime);
-        const clipUrl = URL.createObjectURL(clipBlob);
-        const audio = new Audio(clipUrl);
-        audioRef.current = audio;
-        const duration = (clip.endTime - clip.startTime) / 1000;
+        const arrayBuffer = await sourceBlob.arrayBuffer();
+        const audioCtx = new AudioContext();
+        audioCtxRef.current = audioCtx;
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
-        audio.addEventListener("canplay", () => {
-          audio.play();
-          setIsPlaying(true);
-          playbackTimerRef.current = setInterval(() => {
-            if (audio.ended || audio.currentTime >= duration) {
-              stopPlayback();
-              URL.revokeObjectURL(clipUrl);
-            } else {
-              setPlaybackProgress((audio.currentTime / duration) * 100);
-            }
-          }, 100);
-        }, { once: true });
+        const sampleRate = audioBuffer.sampleRate;
+        const startSample = Math.floor((clip.startTime / 1000) * sampleRate);
+        const endSample = Math.min(Math.floor((clip.endTime / 1000) * sampleRate), audioBuffer.length);
+        const clipLength = Math.max(0, endSample - startSample);
 
-        audio.addEventListener("error", () => {
-          showToast("Failed to play audio");
-          stopPlayback();
-          URL.revokeObjectURL(clipUrl);
-        }, { once: true });
+        if (clipLength === 0) {
+          showToast("Clip has zero length");
+          await audioCtx.close();
+          return;
+        }
 
-        audio.load();
+        const numChannels = audioBuffer.numberOfChannels;
+        const clipBuffer = audioCtx.createBuffer(numChannels, clipLength, sampleRate);
+        for (let ch = 0; ch < numChannels; ch++) {
+          const src = audioBuffer.getChannelData(ch);
+          const dst = clipBuffer.getChannelData(ch);
+          for (let i = 0; i < clipLength; i++) {
+            dst[i] = src[startSample + i];
+          }
+        }
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = clipBuffer;
+        source.connect(audioCtx.destination);
+        sourceNodeRef.current = source;
+
+        const duration = clipBuffer.duration;
+        playbackStartRef.current = audioCtx.currentTime;
+
+        source.onended = () => stopPlayback();
+        source.start();
+        setIsPlaying(true);
+
+        playbackTimerRef.current = setInterval(() => {
+          if (!audioCtxRef.current) return;
+          const elapsed = audioCtxRef.current.currentTime - playbackStartRef.current;
+          if (elapsed >= duration) {
+            stopPlayback();
+          } else {
+            setPlaybackProgress((elapsed / duration) * 100);
+          }
+        }, 100);
+
         return;
       }
 
