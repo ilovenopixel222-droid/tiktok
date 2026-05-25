@@ -1,70 +1,29 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, Zap, Crown, Building2 } from "lucide-react";
+import { Check, Zap, Sparkles, Infinity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { PricingPlan } from "@/types";
+import Link from "next/link";
 
-const plans: PricingPlan[] = [
-  {
-    name: "Starter",
-    price: 0,
-    period: "forever",
-    clips_per_month: 10,
-    features: [
-      "10 clips per month",
-      "720p export quality",
-      "Auto captions",
-      "Basic moment detection",
-      "1 social account",
-      "Community support",
-    ],
-  },
-  {
-    name: "Pro",
-    price: 29,
-    period: "month",
-    clips_per_month: 100,
-    highlighted: true,
-    badge: "Most Popular",
-    features: [
-      "100 clips per month",
-      "1080p export quality",
-      "All AI editing features",
-      "Advanced moment detection",
-      "5 social accounts",
-      "Auto publishing",
-      "Viral score predictions",
-      "Priority rendering",
-      "Analytics dashboard",
-      "Email support",
-    ],
-  },
-  {
-    name: "Enterprise",
-    price: 99,
-    period: "month",
-    clips_per_month: -1,
-    badge: "Unlimited",
-    features: [
-      "Unlimited clips",
-      "4K export quality",
-      "All Pro features",
-      "Team collaboration",
-      "Custom branding",
-      "API access",
-      "Dedicated account manager",
-      "Custom integrations",
-      "Bulk processing",
-      "White-label option",
-      "SLA guarantee",
-      "Priority support 24/7",
-    ],
-  },
+const features = [
+  "Unlimited clips per month",
+  "4K export quality",
+  "All AI editing features",
+  "Advanced moment detection",
+  "Unlimited social accounts",
+  "Auto publishing to all platforms",
+  "Viral score predictions",
+  "Priority rendering",
+  "Full analytics dashboard",
+  "Team collaboration",
+  "Custom branding & watermarks",
+  "API access",
+  "Bulk processing",
+  "AI captions & face tracking",
+  "Silence & dead-air removal",
+  "AI hook & title generation",
 ];
-
-const icons = [Zap, Crown, Building2];
 
 export function Pricing() {
   return (
@@ -81,93 +40,70 @@ export function Pricing() {
             Pricing
           </span>
           <h2 className="mt-4 text-4xl font-extrabold sm:text-5xl">
-            Plans That{" "}
-            <span className="gradient-text">Scale With You</span>
+            Completely{" "}
+            <span className="gradient-text">Free</span>
+            {" "}for Everyone
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-muted">
-            Start free, upgrade when you&apos;re ready. No hidden fees, cancel anytime.
+            Every feature. Every tool. No limits. No credit card. No catch.
           </p>
         </motion.div>
 
-        <div className="mt-16 grid gap-8 lg:grid-cols-3">
-          {plans.map((plan, i) => {
-            const Icon = icons[i];
-            return (
-              <motion.div
-                key={plan.name}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-                className={`relative ${plan.highlighted ? "lg:-mt-4 lg:mb-[-16px]" : ""}`}
-              >
-                {plan.highlighted && (
-                  <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-primary via-secondary to-primary opacity-30 blur-sm" />
-                )}
-                <div
-                  className={`relative h-full glass-card p-8 flex flex-col ${
-                    plan.highlighted ? "border-primary/40 glow-purple" : ""
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`rounded-xl p-2 ${
-                          plan.highlighted
-                            ? "bg-gradient-to-br from-primary to-secondary"
-                            : "bg-white/5"
-                        }`}
-                      >
-                        <Icon className="h-5 w-5 text-white" />
-                      </div>
-                      <h3 className="text-xl font-bold">{plan.name}</h3>
-                    </div>
-                    {plan.badge && (
-                      <Badge variant={plan.highlighted ? "primary" : "outline"}>
-                        {plan.badge}
-                      </Badge>
-                    )}
+        <div className="mt-16 max-w-2xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="relative"
+          >
+            <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-primary via-secondary to-primary opacity-30 blur-sm" />
+            <div className="relative glass-card p-8 border-primary/40 glow-purple">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-xl p-2 bg-gradient-to-br from-primary to-secondary">
+                    <Zap className="h-6 w-6 text-white" />
                   </div>
-
-                  <div className="mt-6">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-5xl font-extrabold">
-                        {plan.price === 0 ? "Free" : `$${plan.price}`}
-                      </span>
-                      {plan.price > 0 && (
-                        <span className="text-muted">/{plan.period}</span>
-                      )}
-                    </div>
-                    <p className="mt-2 text-sm text-muted">
-                      {plan.clips_per_month === -1
-                        ? "Unlimited clips per month"
-                        : `${plan.clips_per_month} clips per month`}
-                    </p>
-                  </div>
-
-                  <ul className="mt-8 flex-1 space-y-3">
-                    {plan.features.map((feature) => (
-                      <li key={feature} className="flex items-start gap-3 text-sm">
-                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" />
-                        <span className="text-foreground/80">{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div className="mt-8">
-                    <Button
-                      variant={plan.highlighted ? "primary" : "secondary"}
-                      className="w-full"
-                      size="lg"
-                      glow={plan.highlighted}
-                    >
-                      {plan.price === 0 ? "Get Started Free" : "Start Free Trial"}
-                    </Button>
-                  </div>
+                  <h3 className="text-2xl font-bold">ClipViral</h3>
                 </div>
-              </motion.div>
-            );
-          })}
+                <Badge variant="primary" className="px-3 py-1 text-sm">
+                  <Sparkles className="h-3.5 w-3.5 mr-1" />
+                  100% Free
+                </Badge>
+              </div>
+
+              <div className="mt-6">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-6xl font-extrabold">$0</span>
+                  <span className="text-muted text-lg">/ forever</span>
+                </div>
+                <div className="mt-2 flex items-center gap-2 text-sm text-primary-light">
+                  <Infinity className="h-4 w-4" />
+                  Unlimited everything — no paywalls, no limits
+                </div>
+              </div>
+
+              <div className="mt-8 grid gap-3 sm:grid-cols-2">
+                {features.map((feature) => (
+                  <div key={feature} className="flex items-start gap-3 text-sm">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                    <span className="text-foreground/80">{feature}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-8">
+                <Link href="/signup">
+                  <Button variant="primary" className="w-full" size="lg" glow>
+                    <Zap className="h-5 w-5" />
+                    Get Started — It&apos;s Free
+                  </Button>
+                </Link>
+                <p className="mt-3 text-center text-xs text-muted/60">
+                  No credit card required · No hidden fees · All features included
+                </p>
+              </div>
+            </div>
+          </motion.div>
         </div>
       </div>
     </section>

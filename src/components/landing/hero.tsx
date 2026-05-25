@@ -53,7 +53,7 @@ export function Hero() {
             className="mt-6 max-w-2xl text-lg text-muted sm:text-xl"
           >
             Paste any YouTube, Twitch, Kick, or Rumble link. Our AI finds the best moments,
-            edits them into scroll-stopping clips, and posts them everywhere — fully automated.
+            edits them into scroll-stopping clips, and auto-posts to TikTok — fully automated.
           </motion.p>
 
           <motion.div
@@ -69,10 +69,12 @@ export function Hero() {
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Button>
             </Link>
-            <Button variant="glass" size="xl" className="group">
-              <Play className="h-5 w-5" />
-              Watch Demo
-            </Button>
+            <Link href="/dashboard/upload">
+              <Button variant="glass" size="xl" className="group">
+                <Play className="h-5 w-5" />
+                Watch Demo
+              </Button>
+            </Link>
           </motion.div>
 
           <motion.div

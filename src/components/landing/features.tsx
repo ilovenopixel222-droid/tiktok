@@ -35,8 +35,8 @@ const features = [
   },
   {
     icon: Upload,
-    title: "Auto Multi-Platform Upload",
-    description: "Publish directly to TikTok, Instagram Reels, YouTube Shorts, and Facebook Reels in one click.",
+    title: "Auto TikTok Upload",
+    description: "Publish directly to your TikTok account in one click with auto-scheduling and hashtag optimization.",
     color: "from-emerald-500 to-green-600",
   },
   {

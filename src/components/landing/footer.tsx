@@ -2,10 +2,29 @@ import Link from "next/link";
 import { Zap } from "lucide-react";
 
 const links = {
-  Product: ["Features", "Pricing", "Changelog", "Roadmap", "API Docs"],
-  Resources: ["Blog", "Tutorials", "Help Center", "Community", "Status"],
-  Company: ["About", "Careers", "Press", "Contact", "Partners"],
-  Legal: ["Privacy Policy", "Terms of Service", "Cookie Policy", "DMCA"],
+  Product: [
+    { label: "Features", href: "/#features" },
+    { label: "Pricing", href: "/#pricing" },
+    { label: "How It Works", href: "/#how-it-works" },
+    { label: "FAQ", href: "/#faq" },
+    { label: "Dashboard", href: "/dashboard" },
+  ],
+  Resources: [
+    { label: "Upload Video", href: "/dashboard/upload" },
+    { label: "My Clips", href: "/dashboard/clips" },
+    { label: "Analytics", href: "/dashboard/analytics" },
+    { label: "Automation", href: "/dashboard/automation" },
+    { label: "Settings", href: "/dashboard/settings" },
+  ],
+  Company: [
+    { label: "About", href: "/#features" },
+    { label: "Testimonials", href: "/#testimonials" },
+    { label: "Contact", href: "/#faq" },
+  ],
+  Legal: [
+    { label: "Privacy Policy", href: "/#" },
+    { label: "Terms of Service", href: "/#" },
+  ],
 };
 
 export function Footer() {
@@ -42,13 +61,13 @@ export function Footer() {
               <h4 className="text-sm font-semibold text-foreground">{category}</h4>
               <ul className="mt-4 space-y-3">
                 {items.map((item) => (
-                  <li key={item}>
-                    <a
-                      href="#"
+                  <li key={item.label}>
+                    <Link
+                      href={item.href}
                       className="text-sm text-muted transition-colors hover:text-foreground"
                     >
-                      {item}
-                    </a>
+                      {item.label}
+                    </Link>
                   </li>
                 ))}
               </ul>

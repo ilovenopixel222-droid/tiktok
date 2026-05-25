@@ -36,9 +36,15 @@ yarn-error.log*
 .env.production
 .env.development
 
+# uploads
+/uploads
+
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+test-plan.md
+test-report.md
+test-speech.mp3

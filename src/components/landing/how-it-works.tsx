@@ -33,7 +33,7 @@ const steps = [
     number: "04",
     title: "Publish Everywhere",
     description:
-      "Review, customize, and auto-publish to TikTok, Instagram Reels, YouTube Shorts, and Facebook Reels instantly.",
+      "Review, customize, and auto-publish directly to your TikTok account instantly.",
     color: "from-emerald-500 to-green-600",
   },
 ];

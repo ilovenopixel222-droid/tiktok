@@ -1,9 +1,10 @@
 "use client";
 
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Scissors, Eye, TrendingUp, Zap, ArrowUpRight, Play,
-  Clock, BarChart3, Sparkles
+  Clock, BarChart3, Sparkles, Upload, FileVideo
 } from "lucide-react";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -12,25 +13,24 @@ import { Badge } from "@/components/ui/badge";
 import { Topbar } from "@/components/dashboard/topbar";
 import { formatNumber } from "@/lib/utils";
 
-const stats = [
-  { label: "Total Clips", value: 147, change: "+12", icon: Scissors, color: "from-purple-500 to-violet-600" },
-  { label: "Total Views", value: 2_430_000, change: "+24%", icon: Eye, color: "from-cyan-500 to-blue-600" },
-  { label: "Viral Score Avg", value: 87, change: "+5", icon: TrendingUp, color: "from-emerald-500 to-green-600", suffix: "%" },
-  { label: "This Month", value: 23, change: "+8", icon: Zap, color: "from-amber-500 to-orange-600" },
-];
+interface Clip {
+  id: string;
+  title: string;
+  viralScore: number;
+  views: number;
+  status: string;
+  platform: string;
+  duration: string;
+  moment: string;
+}
 
-const recentClips = [
-  { id: "1", title: "When chat said I couldn't do it 😂", viralScore: 95, views: 458000, status: "published" as const, platform: "TikTok", duration: "0:47", moment: "funny" },
-  { id: "2", title: "This reaction was INSANE", viralScore: 91, views: 312000, status: "published" as const, platform: "Reels", duration: "0:34", moment: "shocking" },
-  { id: "3", title: "The most emotional moment on stream", viralScore: 88, views: 0, status: "ready" as const, platform: "Shorts", duration: "0:52", moment: "emotional" },
-  { id: "4", title: "Hot take: this game is overrated", viralScore: 82, views: 0, status: "processing" as const, platform: "TikTok", duration: "0:41", moment: "controversial" },
-  { id: "5", title: "The debate got heated real quick", viralScore: 79, views: 189000, status: "published" as const, platform: "Reels", duration: "0:58", moment: "argument" },
-];
-
-const processingJobs = [
-  { title: "Stream VOD - May 22, 2026", progress: 78, clipsFound: 12, status: "Generating clips..." },
-  { title: "Podcast Episode #47", progress: 45, clipsFound: 8, status: "Analyzing content..." },
-];
+interface ProcessingJob {
+  id: string;
+  title: string;
+  progress: number;
+  clipsFound: number;
+  status: string;
+}
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -42,14 +42,58 @@ function getStatusBadge(status: string) {
   }
 }
 
+function loadStoredClips(): Clip[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = localStorage.getItem("clipviral_clips");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+function computeStats(clipsData: Clip[]) {
+  return {
+    totalClips: clipsData.length,
+    totalViews: clipsData.reduce((a, c) => a + (c.views || 0), 0),
+    avgViralScore: clipsData.length > 0
+      ? Math.round(clipsData.reduce((a, c) => a + (c.viralScore || 0), 0) / clipsData.length)
+      : 0,
+    thisMonth: clipsData.length,
+  };
+}
+
 export default function DashboardPage() {
+  const [clips, setClips] = useState<Clip[]>(loadStoredClips);
+  const [jobs] = useState<ProcessingJob[]>([]);
+  const stats = useMemo(() => computeStats(clips), [clips]);
+
+  useEffect(() => {
+    if (clips.length > 0) return;
+    // Fallback: try API
+    fetch("/api/clips").then(r => r.json()).then(data => {
+      if (data.clips && data.clips.length > 0) {
+        setClips(data.clips);
+      }
+    }).catch(() => {});
+  }, [clips.length]);
+
+  const statCards = [
+    { label: "Total Clips", value: stats.totalClips, icon: Scissors, color: "from-purple-500 to-violet-600" },
+    { label: "Total Views", value: stats.totalViews, icon: Eye, color: "from-cyan-500 to-blue-600" },
+    { label: "Viral Score Avg", value: stats.avgViralScore, icon: TrendingUp, color: "from-emerald-500 to-green-600", suffix: "%" },
+    { label: "This Month", value: stats.thisMonth, icon: Zap, color: "from-amber-500 to-orange-600" },
+  ];
+
   return (
     <>
-      <Topbar title="Dashboard" subtitle="Welcome back, Isaac! Here's your content overview." />
+      <Topbar title="Dashboard" subtitle="Welcome back! Here's your content overview." />
       <div className="p-6 space-y-6">
         {/* Stats */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {stats.map((stat, i) => (
+          {statCards.map((stat, i) => (
             <motion.div
               key={stat.label}
               initial={{ opacity: 0, y: 20 }}
@@ -66,10 +110,6 @@ export default function DashboardPage() {
                         : stat.value}
                       {stat.suffix || ""}
                     </p>
-                    <div className="mt-1 flex items-center gap-1 text-xs text-success">
-                      <ArrowUpRight className="h-3 w-3" />
-                      {stat.change}
-                    </div>
                   </div>
                   <div className={`rounded-xl bg-gradient-to-br ${stat.color} p-2.5`}>
                     <stat.icon className="h-5 w-5 text-white" />
@@ -94,44 +134,63 @@ export default function DashboardPage() {
                   </Button>
                 </Link>
               </div>
-              <div className="space-y-3">
-                {recentClips.map((clip) => (
-                  <div
-                    key={clip.id}
-                    className="flex items-center gap-4 rounded-xl bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-colors"
-                  >
-                    <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-secondary/20 border border-white/5">
-                      <Play className="h-4 w-4 text-primary-light" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{clip.title}</p>
-                      <div className="mt-1 flex items-center gap-3 text-xs text-muted">
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          {clip.duration}
-                        </span>
-                        <span>{clip.platform}</span>
-                        {clip.views > 0 && (
+              {clips.length > 0 ? (
+                <div className="space-y-3">
+                  {clips.slice(0, 5).map((clip) => (
+                    <Link
+                      href="/dashboard/clips"
+                      key={clip.id}
+                      className="flex items-center gap-4 rounded-xl bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-colors cursor-pointer"
+                    >
+                      <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-secondary/20 border border-white/5">
+                        <Play className="h-4 w-4 text-primary-light" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{clip.title}</p>
+                        <div className="mt-1 flex items-center gap-3 text-xs text-muted">
                           <span className="flex items-center gap-1">
-                            <Eye className="h-3 w-3" />
-                            {formatNumber(clip.views)}
+                            <Clock className="h-3 w-3" />
+                            {clip.duration}
                           </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="hidden sm:flex items-center gap-3">
-                      <div className="text-right">
-                        <div className="flex items-center gap-1 text-sm font-bold text-emerald-400">
-                          <Sparkles className="h-3 w-3" />
-                          {clip.viralScore}%
+                          <span>{clip.platform}</span>
+                          {clip.views > 0 && (
+                            <span className="flex items-center gap-1">
+                              <Eye className="h-3 w-3" />
+                              {formatNumber(clip.views)}
+                            </span>
+                          )}
                         </div>
-                        <div className="text-[10px] text-muted">Viral Score</div>
                       </div>
-                      {getStatusBadge(clip.status)}
-                    </div>
+                      <div className="hidden sm:flex items-center gap-3">
+                        <div className="text-right">
+                          <div className="flex items-center gap-1 text-sm font-bold text-emerald-400">
+                            <Sparkles className="h-3 w-3" />
+                            {clip.viralScore}%
+                          </div>
+                          <div className="text-[10px] text-muted">Viral Score</div>
+                        </div>
+                        {getStatusBadge(clip.status)}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="rounded-2xl bg-primary/10 p-4 mb-4">
+                    <FileVideo className="h-8 w-8 text-primary-light" />
                   </div>
-                ))}
-              </div>
+                  <h3 className="text-sm font-semibold">No clips yet</h3>
+                  <p className="mt-1 text-xs text-muted max-w-xs">
+                    Upload your first video or paste a link to start generating viral clips with AI.
+                  </p>
+                  <Link href="/dashboard/upload" className="mt-4">
+                    <Button size="sm">
+                      <Upload className="h-3.5 w-3.5" />
+                      Create Your First Clip
+                    </Button>
+                  </Link>
+                </div>
+              )}
             </Card>
           </div>
 
@@ -139,10 +198,10 @@ export default function DashboardPage() {
           <div className="space-y-6">
             <Card>
               <h2 className="text-base font-semibold mb-4">Processing Queue</h2>
-              {processingJobs.length > 0 ? (
+              {jobs.length > 0 ? (
                 <div className="space-y-4">
-                  {processingJobs.map((job, i) => (
-                    <div key={i} className="rounded-xl bg-white/[0.02] p-3">
+                  {jobs.map((job, i) => (
+                    <div key={job.id || i} className="rounded-xl bg-white/[0.02] p-3">
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-medium truncate">{job.title}</span>
                         <span className="shrink-0 text-xs text-primary-light">{job.progress}%</span>

@@ -1,23 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Link2, Upload, Sparkles, ArrowRight, PlayCircle, MonitorPlay,
   Monitor, Radio, FileVideo, CheckCircle2, Loader2, Settings2,
-  Wand2, Brain, Clock
+  Wand2, Brain, Clock, AlertCircle, X
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Topbar } from "@/components/dashboard/topbar";
+import { storeAudioFile } from "@/lib/audio-store";
+import { generateClipsFromTranscript } from "@/lib/detect-moments";
+import type { TranscriptData } from "@/lib/detect-moments";
 
 const platforms = [
   { name: "YouTube", icon: PlayCircle, color: "from-red-500 to-red-600", placeholder: "https://youtube.com/watch?v=..." },
   { name: "Twitch", icon: MonitorPlay, color: "from-purple-500 to-purple-600", placeholder: "https://twitch.tv/videos/..." },
   { name: "Kick", icon: Monitor, color: "from-green-500 to-green-600", placeholder: "https://kick.com/video/..." },
   { name: "Rumble", icon: Radio, color: "from-emerald-500 to-emerald-600", placeholder: "https://rumble.com/..." },
+  { name: "TikTok", icon: FileVideo, color: "from-pink-500 to-rose-600", placeholder: "https://tiktok.com/@user/video/..." },
 ];
 
 const clipSettings = [
@@ -34,27 +38,270 @@ const momentTypes = [
   "Stream Fails", "High-Energy", "Rage Reactions", "Podcast Highlights",
 ];
 
+interface ProcessingStep {
+  label: string;
+  done: boolean;
+}
+
+function tryParseError(text: string): string | null {
+  try {
+    const data = JSON.parse(text);
+    return data.error || data.message || null;
+  } catch {
+    return text.length > 200 ? text.substring(0, 200) + "..." : text;
+  }
+}
+
 export default function UploadPage() {
   const [mode, setMode] = useState<"link" | "upload">("link");
   const [url, setUrl] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState(0);
   const [processing, setProcessing] = useState(false);
-  const [step, setStep] = useState(0);
+  const [complete, setComplete] = useState(false);
+  const [clipsGenerated, setClipsGenerated] = useState(0);
+  const [steps, setSteps] = useState<ProcessingStep[]>([]);
   const [selectedMoments, setSelectedMoments] = useState<string[]>(momentTypes.slice(0, 8));
   const [showAdvanced, setShowAdvanced] = useState(false);
-
-  const handleProcess = () => {
-    setProcessing(true);
-    setStep(1);
-    setTimeout(() => setStep(2), 2000);
-    setTimeout(() => setStep(3), 4000);
-    setTimeout(() => setStep(4), 6000);
-  };
+  const [error, setError] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [progress, setProgress] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const toggleMoment = (m: string) => {
     setSelectedMoments((prev) =>
       prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]
     );
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      setError(null);
+      // Store immediately in IndexedDB so clip extraction works later
+      await storeAudioFile("current-source", file).catch(() => {});
+    }
+  };
+
+  const startProgressSimulation = useCallback(() => {
+    if (progressRef.current) clearInterval(progressRef.current);
+    let currentProgress = 5;
+    const stepTimings = [
+      { at: 5, step: 0 },
+      { at: 15, step: 1 },
+      { at: 35, step: 2 },
+      { at: 60, step: 3 },
+    ];
+
+    progressRef.current = setInterval(() => {
+      if (currentProgress < 85) {
+        currentProgress += currentProgress < 20 ? 2 : currentProgress < 50 ? 1 : 0.5;
+        currentProgress = Math.min(currentProgress, 85);
+        setProgress(Math.round(currentProgress));
+
+        const currentStep = [...stepTimings].reverse().find((s) => currentProgress >= s.at);
+        if (currentStep) {
+          setSteps((prev) => prev.map((s, i) => ({ ...s, done: i <= currentStep.step })));
+        }
+      }
+    }, 1500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (progressRef.current) clearInterval(progressRef.current);
+    };
+  }, []);
+
+  const handleProcess = async () => {
+    setError(null);
+    setProcessing(true);
+    setComplete(false);
+    setClipsGenerated(0);
+    setSteps([
+      { label: "Submitting video for processing", done: false },
+      { label: "Transcribing audio with AssemblyAI", done: false },
+      { label: "AI analyzing for viral moments", done: false },
+      { label: "Generating clips", done: false },
+      { label: "Finalizing clips", done: false },
+    ]);
+    setProgress(5);
+    startProgressSimulation();
+
+    try {
+      let processUrl = "";
+      let processTitle = "";
+
+      if (mode === "link") {
+        if (!url.trim()) {
+          setError("Please enter a video URL");
+          setProcessing(false);
+          if (progressRef.current) clearInterval(progressRef.current);
+          return;
+        }
+        processUrl = url;
+        processTitle = `${platforms[selectedPlatform].name} Video`;
+      } else {
+        if (!selectedFile) {
+          setError("Please select a file");
+          setProcessing(false);
+          if (progressRef.current) clearInterval(progressRef.current);
+          return;
+        }
+
+        // Upload directly to AssemblyAI from client (bypasses Vercel body size limit)
+        setSteps((prev) => prev.map((s, i) => i === 0 ? { ...s, label: "Uploading file..." } : s));
+
+        const apiKeyRes = await fetch("/api/upload-key");
+        if (!apiKeyRes.ok) {
+          const text = await apiKeyRes.text();
+          throw new Error(tryParseError(text) || "Failed to get upload credentials");
+        }
+        const { key } = await apiKeyRes.json();
+
+        const fileBytes = await selectedFile.arrayBuffer();
+        const uploadRes = await fetch("https://api.assemblyai.com/v2/upload", {
+          method: "POST",
+          headers: {
+            Authorization: key,
+            "Content-Type": "application/octet-stream",
+          },
+          body: fileBytes,
+        });
+
+        if (!uploadRes.ok) {
+          const text = await uploadRes.text();
+          throw new Error(tryParseError(text) || "File upload failed");
+        }
+
+        const uploadData = await uploadRes.json();
+        processUrl = uploadData.upload_url;
+        processTitle = selectedFile.name.replace(/\.[^/.]+$/, "");
+      }
+
+      // Step 1: Submit to AssemblyAI (fast, returns transcriptId)
+      setSteps((prev) => prev.map((s, i) => i === 0 ? { ...s, done: true } : i === 1 ? { ...s, label: "Submitting to AI transcription..." } : s));
+      setProgress(15);
+      const submitRes = await fetch("/api/process-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoUrl: processUrl,
+          title: processTitle,
+          momentTypes: selectedMoments,
+        }),
+      });
+
+      if (!submitRes.ok) {
+        const text = await submitRes.text().catch(() => "");
+        throw new Error(tryParseError(text) || "Submission failed");
+      }
+
+      let submitData;
+      try {
+        submitData = await submitRes.json();
+      } catch {
+        throw new Error("Invalid response from server. Please try again.");
+      }
+      const { transcriptId, videoId: vid, audioUrl } = submitData;
+
+      if (!transcriptId) throw new Error("No transcript ID returned");
+
+      // Step 2: Poll for transcription completion (client-side polling, no timeout)
+      setSteps((prev) => prev.map((s, i) => i === 1 ? { ...s, label: "Transcribing audio — this may take 1-3 minutes...", done: true } : s));
+      setProgress(20);
+
+      const statusMessages = [
+        "Analyzing audio waveform...",
+        "Running speech-to-text AI...",
+        "Detecting speakers...",
+        "Analyzing sentiment...",
+        "Processing highlights...",
+        "Almost done transcribing...",
+      ];
+
+      let transcript = null;
+      for (let i = 0; i < 300; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const pollRes = await fetch(`/api/poll-transcription?id=${transcriptId}`);
+        if (!pollRes.ok) {
+          const errText = await pollRes.text().catch(() => "");
+          throw new Error(tryParseError(errText) || "Polling failed");
+        }
+        let pollData;
+        try {
+          pollData = await pollRes.json();
+        } catch {
+          throw new Error("Invalid response from transcription service");
+        }
+
+        if (pollData.status === "completed") {
+          transcript = pollData.transcript;
+          break;
+        }
+        if (pollData.status === "error") {
+          throw new Error(pollData.error || "Transcription failed");
+        }
+
+        const msgIdx = Math.min(Math.floor(i / 5), statusMessages.length - 1);
+        setSteps((prev) => prev.map((s, si) => si === 2 ? { ...s, label: statusMessages[msgIdx] } : s));
+
+        const prog = Math.min(20 + i * 0.5, 60);
+        setProgress(Math.round(prog));
+      }
+
+      if (!transcript) throw new Error("Transcription timed out");
+
+      // Step 3: Generate clips from transcript (client-side, avoids Vercel body size limits)
+      setSteps((prev) => prev.map((s, i) => i === 2 ? { ...s, label: "Transcription complete!", done: true } : i === 3 ? { ...s, label: "Detecting viral moments & generating clips..." } : s));
+      setProgress(70);
+
+      if (progressRef.current) clearInterval(progressRef.current);
+      const data = generateClipsFromTranscript(
+        transcript as TranscriptData,
+        selectedMoments,
+        processTitle,
+        audioUrl || "",
+        vid,
+      );
+
+      // Store clips in localStorage
+      if (data.clips && Array.isArray(data.clips)) {
+        localStorage.setItem("clipviral_clips", JSON.stringify(data.clips));
+      }
+      if (data.videoId) {
+        localStorage.setItem("clipviral_videos", JSON.stringify([{
+          id: data.videoId,
+          title: processTitle,
+          source: mode === "link" ? "URL" : "Upload",
+          clips: data.clipsGenerated || 0,
+          date: new Date().toISOString().split("T")[0],
+          status: "processed",
+        }]));
+      }
+
+      setProgress(100);
+      setSteps((prev) => prev.map((s) => ({ ...s, done: true })));
+      setComplete(true);
+      setClipsGenerated(data.clipsGenerated || 0);
+    } catch (err) {
+      if (progressRef.current) clearInterval(progressRef.current);
+      setError(err instanceof Error ? err.message : "An error occurred");
+      setProcessing(false);
+    }
+  };
+
+  const resetForm = () => {
+    setProcessing(false);
+    setComplete(false);
+    setClipsGenerated(0);
+    setSteps([]);
+    setError(null);
+    setProgress(0);
+    setUrl("");
+    setSelectedFile(null);
+    if (progressRef.current) clearInterval(progressRef.current);
   };
 
   return (
@@ -65,7 +312,7 @@ export default function UploadPage() {
         <div className="flex gap-2">
           <Button
             variant={mode === "link" ? "primary" : "secondary"}
-            onClick={() => setMode("link")}
+            onClick={() => { setMode("link"); setError(null); }}
             className="flex-1"
           >
             <Link2 className="h-4 w-4" />
@@ -73,13 +320,23 @@ export default function UploadPage() {
           </Button>
           <Button
             variant={mode === "upload" ? "primary" : "secondary"}
-            onClick={() => setMode("upload")}
+            onClick={() => { setMode("upload"); setError(null); }}
             className="flex-1"
           >
             <Upload className="h-4 w-4" />
             Upload File
           </Button>
         </div>
+
+        {error && (
+          <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+            <AlertCircle className="h-5 w-5 text-red-400 shrink-0" />
+            <p className="text-sm text-red-300 flex-1">{error}</p>
+            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         <AnimatePresence mode="wait">
           {mode === "link" ? (
@@ -132,19 +389,43 @@ export default function UploadPage() {
               exit={{ opacity: 0, y: -10 }}
             >
               <Card>
-                <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/10 p-12 text-center hover:border-primary/30 transition-colors cursor-pointer">
-                  <div className="rounded-2xl bg-primary/10 p-4 mb-4">
-                    <FileVideo className="h-10 w-10 text-primary-light" />
-                  </div>
-                  <h3 className="text-base font-semibold">Drop your video here</h3>
-                  <p className="mt-2 text-sm text-muted">
-                    or click to browse. Supports MP4, MOV, AVI, MKV, WEBM, MP3, WAV
-                  </p>
-                  <p className="mt-1 text-xs text-muted/60">Max file size: 10GB</p>
-                  <Button variant="secondary" size="sm" className="mt-4">
-                    <Upload className="h-4 w-4" />
-                    Choose File
-                  </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="video/*,audio/*"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/10 p-12 text-center hover:border-primary/30 transition-colors cursor-pointer"
+                >
+                  {selectedFile ? (
+                    <>
+                      <div className="rounded-2xl bg-success/10 p-4 mb-4">
+                        <CheckCircle2 className="h-10 w-10 text-success" />
+                      </div>
+                      <h3 className="text-base font-semibold">{selectedFile.name}</h3>
+                      <p className="mt-2 text-sm text-muted">
+                        {(selectedFile.size / (1024 * 1024)).toFixed(1)} MB · Click to change file
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="rounded-2xl bg-primary/10 p-4 mb-4">
+                        <FileVideo className="h-10 w-10 text-primary-light" />
+                      </div>
+                      <h3 className="text-base font-semibold">Drop your video here</h3>
+                      <p className="mt-2 text-sm text-muted">
+                        or click to browse. Supports MP4, MOV, AVI, MKV, WEBM, MP3, WAV
+                      </p>
+                      <p className="mt-1 text-xs text-muted/60">Max file size: 10GB</p>
+                      <Button variant="secondary" size="sm" className="mt-4">
+                        <Upload className="h-4 w-4" />
+                        Choose File
+                      </Button>
+                    </>
+                  )}
                 </div>
               </Card>
             </motion.div>
@@ -290,17 +571,16 @@ export default function UploadPage() {
           <Card glow>
             <div className="text-center">
               <div className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-primary-light">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                AI Processing Your Content
+                {progress >= 100 ? (
+                  <CheckCircle2 className="h-4 w-4 text-success" />
+                ) : (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+                {complete ? `Processing Complete! ${clipsGenerated} clips generated` : "AI Processing Your Content"}
               </div>
 
               <div className="space-y-3">
-                {[
-                  { label: "Downloading video", done: step >= 1 },
-                  { label: "Transcribing audio & detecting speakers", done: step >= 2 },
-                  { label: "AI analyzing for viral moments", done: step >= 3 },
-                  { label: "Generating clips with effects", done: step >= 4 },
-                ].map((s, i) => (
+                {steps.map((s, i) => (
                   <div key={i} className="flex items-center gap-3 text-sm">
                     {s.done ? (
                       <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
@@ -318,14 +598,29 @@ export default function UploadPage() {
               <div className="mt-6 h-2 rounded-full bg-white/10 overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
-                  animate={{ width: `${step * 25}%` }}
+                  animate={{ width: `${progress}%` }}
                   className="h-full rounded-full bg-gradient-to-r from-primary to-secondary"
                 />
               </div>
-              <div className="mt-2 flex items-center justify-center gap-2 text-xs text-muted">
-                <Clock className="h-3 w-3" />
-                Estimated time remaining: {Math.max(0, 8 - step * 2)} minutes
-              </div>
+
+              {progress >= 100 ? (
+                <div className="mt-4 flex gap-3 justify-center">
+                  <a href="/dashboard/clips">
+                    <Button size="sm">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      View Generated Clips
+                    </Button>
+                  </a>
+                  <Button variant="secondary" size="sm" onClick={resetForm}>
+                    Process Another Video
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-2 flex items-center justify-center gap-2 text-xs text-muted">
+                  <Clock className="h-3 w-3" />
+                  Processing... This may take a few minutes depending on video length.
+                </div>
+              )}
             </div>
           </Card>
         )}
