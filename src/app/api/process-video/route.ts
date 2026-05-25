@@ -12,22 +12,48 @@ function isPlatformUrl(url: string): boolean {
 }
 
 async function getYouTubeAudioUrl(videoUrl: string): Promise<string> {
-  // Dynamic import to avoid bundling issues
-  const ytdl = await import("@distube/ytdl-core");
-  const info = await ytdl.getInfo(videoUrl);
-  // Prefer audio-only format for faster processing
-  const audioFormats = ytdl.filterFormats(info.formats, "audioonly");
-  if (audioFormats.length > 0) {
-    // Sort by audio bitrate descending, pick best
-    audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
-    return audioFormats[0].url;
+  // Try @distube/ytdl-core first
+  try {
+    const ytdl = await import("@distube/ytdl-core");
+    const info = await ytdl.getInfo(videoUrl);
+    const audioFormats = ytdl.filterFormats(info.formats, "audioonly");
+    if (audioFormats.length > 0) {
+      audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
+      return audioFormats[0].url;
+    }
+    const anyAudio = info.formats.filter((f) => f.hasAudio);
+    if (anyAudio.length > 0) {
+      return anyAudio[0].url;
+    }
+  } catch (ytdlErr) {
+    console.error("ytdl-core failed:", ytdlErr instanceof Error ? ytdlErr.message : ytdlErr);
   }
-  // Fallback to any format with audio
-  const anyAudio = info.formats.filter((f) => f.hasAudio);
-  if (anyAudio.length > 0) {
-    return anyAudio[0].url;
+
+  // Try Cobalt API as fallback
+  try {
+    const cobaltRes = await fetch("https://api.cobalt.tools/", {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url: videoUrl,
+        audioFormat: "mp3",
+        isAudioOnly: true,
+      }),
+    });
+    if (cobaltRes.ok) {
+      const cobaltData = await cobaltRes.json();
+      if (cobaltData.url) return cobaltData.url;
+    }
+  } catch {
+    // Cobalt API unavailable
   }
-  throw new Error("No audio stream found in this video");
+
+  throw new Error(
+    "YouTube blocked server-side extraction. Please download the video first and upload the file directly using the Upload tab. You can use browser extensions like 'Video DownloadHelper' or sites like y2mate.com to save the video."
+  );
 }
 
 async function getDirectAudioUrl(videoUrl: string): Promise<string> {
