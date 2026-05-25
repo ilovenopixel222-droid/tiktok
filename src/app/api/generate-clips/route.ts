@@ -1,7 +1,12 @@
 import { NextRequest } from "next/server";
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Request body too large or invalid JSON. Use client-side clip generation instead." }, { status: 413 });
+  }
   const { transcript, momentTypes, videoId: inputVideoId, audioUrl } = body as {
     transcript: {
       text?: string;

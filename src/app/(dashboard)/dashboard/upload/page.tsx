@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Topbar } from "@/components/dashboard/topbar";
 import { storeAudioFile } from "@/lib/audio-store";
+import { generateClipsFromTranscript } from "@/lib/detect-moments";
+import type { TranscriptData } from "@/lib/detect-moments";
 
 const platforms = [
   { name: "YouTube", icon: PlayCircle, color: "from-red-500 to-red-600", placeholder: "https://youtube.com/watch?v=..." },
@@ -191,11 +193,16 @@ export default function UploadPage() {
       });
 
       if (!submitRes.ok) {
-        const text = await submitRes.text();
+        const text = await submitRes.text().catch(() => "");
         throw new Error(tryParseError(text) || "Submission failed");
       }
 
-      const submitData = await submitRes.json();
+      let submitData;
+      try {
+        submitData = await submitRes.json();
+      } catch {
+        throw new Error("Invalid response from server. Please try again.");
+      }
       const { transcriptId, videoId: vid, audioUrl } = submitData;
 
       if (!transcriptId) throw new Error("No transcript ID returned");
@@ -217,8 +224,16 @@ export default function UploadPage() {
       for (let i = 0; i < 300; i++) {
         await new Promise((r) => setTimeout(r, 3000));
         const pollRes = await fetch(`/api/poll-transcription?id=${transcriptId}`);
-        if (!pollRes.ok) throw new Error("Polling failed");
-        const pollData = await pollRes.json();
+        if (!pollRes.ok) {
+          const errText = await pollRes.text().catch(() => "");
+          throw new Error(tryParseError(errText) || "Polling failed");
+        }
+        let pollData;
+        try {
+          pollData = await pollRes.json();
+        } catch {
+          throw new Error("Invalid response from transcription service");
+        }
 
         if (pollData.status === "completed") {
           transcript = pollData.transcript;
@@ -237,29 +252,18 @@ export default function UploadPage() {
 
       if (!transcript) throw new Error("Transcription timed out");
 
-      // Step 3: Generate clips from transcript
+      // Step 3: Generate clips from transcript (client-side, avoids Vercel body size limits)
       setSteps((prev) => prev.map((s, i) => i === 2 ? { ...s, label: "Transcription complete!", done: true } : i === 3 ? { ...s, label: "Detecting viral moments & generating clips..." } : s));
       setProgress(70);
 
-      const genRes = await fetch("/api/generate-clips", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transcript,
-          momentTypes: selectedMoments,
-          title: processTitle,
-          videoId: vid,
-          audioUrl,
-        }),
-      });
-
-      if (!genRes.ok) {
-        const text = await genRes.text();
-        throw new Error(tryParseError(text) || "Clip generation failed");
-      }
-
       if (progressRef.current) clearInterval(progressRef.current);
-      const data = await genRes.json();
+      const data = generateClipsFromTranscript(
+        transcript as TranscriptData,
+        selectedMoments,
+        processTitle,
+        audioUrl || "",
+        vid,
+      );
 
       // Store clips in localStorage
       if (data.clips && Array.isArray(data.clips)) {
