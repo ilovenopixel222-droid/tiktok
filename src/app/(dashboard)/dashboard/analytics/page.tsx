@@ -24,6 +24,7 @@ interface Clip {
 export default function AnalyticsPage() {
   const [clips, setClips] = useState<Clip[]>([]);
   const [hasData, setHasData] = useState(false);
+  const [timePeriod, setTimePeriod] = useState("7D");
 
   useEffect(() => {
     fetch("/api/clips").then(r => r.json()).then(data => {
@@ -108,11 +109,12 @@ export default function AnalyticsPage() {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-base font-semibold">Views Over Time</h2>
                 <div className="flex gap-1.5">
-                  {["7D", "30D", "90D", "1Y"].map((p, i) => (
+                  {["7D", "30D", "90D", "1Y"].map((p) => (
                     <button
                       key={p}
+                      onClick={() => setTimePeriod(p)}
                       className={`rounded-lg px-3 py-1 text-xs font-medium transition-all cursor-pointer ${
-                        i === 0
+                        timePeriod === p
                           ? "bg-primary/20 text-primary-light border border-primary/30"
                           : "bg-white/5 text-muted hover:bg-white/10"
                       }`}

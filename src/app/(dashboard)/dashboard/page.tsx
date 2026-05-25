@@ -137,9 +137,10 @@ export default function DashboardPage() {
               {clips.length > 0 ? (
                 <div className="space-y-3">
                   {clips.slice(0, 5).map((clip) => (
-                    <div
+                    <Link
+                      href="/dashboard/clips"
                       key={clip.id}
-                      className="flex items-center gap-4 rounded-xl bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-colors"
+                      className="flex items-center gap-4 rounded-xl bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-colors cursor-pointer"
                     >
                       <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-secondary/20 border border-white/5">
                         <Play className="h-4 w-4 text-primary-light" />
@@ -170,7 +171,7 @@ export default function DashboardPage() {
                         </div>
                         {getStatusBadge(clip.status)}
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               ) : (

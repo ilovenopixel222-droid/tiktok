@@ -153,13 +153,17 @@ export default function LibraryPage() {
                     </Badge>
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="secondary" size="sm" className="text-xs">
-                      <Eye className="h-3 w-3" />
-                      View
-                    </Button>
-                    <Button variant="ghost" size="sm" className="text-muted">
-                      <MoreVertical className="h-3.5 w-3.5" />
-                    </Button>
+                    <Link href="/dashboard/clips">
+                      <Button variant="secondary" size="sm" className="text-xs">
+                        <Eye className="h-3 w-3" />
+                        View Clips
+                      </Button>
+                    </Link>
+                    <Link href="/dashboard/upload">
+                      <Button variant="ghost" size="sm" className="text-muted" title="Re-process">
+                        <MoreVertical className="h-3.5 w-3.5" />
+                      </Button>
+                    </Link>
                   </div>
                 </motion.div>
               ))}

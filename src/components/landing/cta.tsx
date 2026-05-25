@@ -36,9 +36,11 @@ export function CTA() {
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Button>
             </Link>
-            <Button variant="glass" size="xl">
-              Watch Demo
-            </Button>
+            <Link href="/dashboard/upload">
+              <Button variant="glass" size="xl">
+                Watch Demo
+              </Button>
+            </Link>
           </div>
           <p className="mt-6 text-sm text-muted/60">
             100% free forever · No credit card · Unlimited clips · All features included

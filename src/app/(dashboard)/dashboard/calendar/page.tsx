@@ -5,6 +5,7 @@ import {
   ChevronLeft, ChevronRight,
   Plus, Sparkles, Calendar as CalendarIcon
 } from "lucide-react";
+import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Topbar } from "@/components/dashboard/topbar";
@@ -12,7 +13,7 @@ import { Topbar } from "@/components/dashboard/topbar";
 const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function CalendarPage() {
-  const [currentMonth] = useState(new Date());
+  const [currentMonth, setCurrentMonth] = useState(new Date());
 
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
@@ -37,8 +38,8 @@ export default function CalendarPage() {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-lg font-bold">{monthName} {year}</h2>
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm"><ChevronLeft className="h-4 w-4" /></Button>
-                  <Button variant="ghost" size="sm"><ChevronRight className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="sm" onClick={() => setCurrentMonth(new Date(year, month - 1, 1))}><ChevronLeft className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="sm" onClick={() => setCurrentMonth(new Date(year, month + 1, 1))}><ChevronRight className="h-4 w-4" /></Button>
                 </div>
               </div>
 
@@ -93,10 +94,12 @@ export default function CalendarPage() {
             <Card>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-base font-semibold">Upcoming Posts</h2>
-                <Button size="sm" variant="secondary">
-                  <Plus className="h-3.5 w-3.5" />
-                  Add
-                </Button>
+                <Link href="/dashboard/upload">
+                  <Button size="sm" variant="secondary">
+                    <Plus className="h-3.5 w-3.5" />
+                    Add
+                  </Button>
+                </Link>
               </div>
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <div className="rounded-2xl bg-primary/10 p-3 mb-3">

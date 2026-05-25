@@ -106,10 +106,13 @@ export function Sidebar() {
             </Link>
           );
         })}
-        <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted hover:bg-white/5 hover:text-foreground transition-all">
+        <Link
+          href="/login"
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted hover:bg-white/5 hover:text-foreground transition-all"
+        >
           <LogOut className="h-5 w-5 shrink-0" />
           {sidebarOpen && <span>Log Out</span>}
-        </button>
+        </Link>
       </div>
 
       <div className="border-t border-white/5 px-3 py-3">
@@ -124,7 +127,9 @@ export function Sidebar() {
             </div>
           )}
           {sidebarOpen && (
-            <Bell className="ml-auto h-4 w-4 shrink-0 text-muted hover:text-foreground cursor-pointer" />
+            <Link href="/dashboard/settings">
+              <Bell className="ml-auto h-4 w-4 shrink-0 text-muted hover:text-foreground cursor-pointer" />
+            </Link>
           )}
         </div>
       </div>

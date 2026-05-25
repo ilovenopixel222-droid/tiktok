@@ -178,7 +178,8 @@ export default function UploadPage() {
       }
 
       // Step 1: Submit to AssemblyAI (fast, returns transcriptId)
-      setSteps((prev) => prev.map((s, i) => i === 1 ? { ...s, label: "Submitting to AssemblyAI..." } : s));
+      setSteps((prev) => prev.map((s, i) => i === 0 ? { ...s, done: true } : i === 1 ? { ...s, label: "Submitting to AI transcription..." } : s));
+      setProgress(15);
       const submitRes = await fetch("/api/process-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -200,8 +201,17 @@ export default function UploadPage() {
       if (!transcriptId) throw new Error("No transcript ID returned");
 
       // Step 2: Poll for transcription completion (client-side polling, no timeout)
-      setSteps((prev) => prev.map((s, i) => i === 1 ? { ...s, label: "Transcribing audio...", done: true } : s));
+      setSteps((prev) => prev.map((s, i) => i === 1 ? { ...s, label: "Transcribing audio — this may take 1-3 minutes...", done: true } : s));
       setProgress(20);
+
+      const statusMessages = [
+        "Analyzing audio waveform...",
+        "Running speech-to-text AI...",
+        "Detecting speakers...",
+        "Analyzing sentiment...",
+        "Processing highlights...",
+        "Almost done transcribing...",
+      ];
 
       let transcript = null;
       for (let i = 0; i < 300; i++) {
@@ -218,6 +228,9 @@ export default function UploadPage() {
           throw new Error(pollData.error || "Transcription failed");
         }
 
+        const msgIdx = Math.min(Math.floor(i / 5), statusMessages.length - 1);
+        setSteps((prev) => prev.map((s, si) => si === 2 ? { ...s, label: statusMessages[msgIdx] } : s));
+
         const prog = Math.min(20 + i * 0.5, 60);
         setProgress(Math.round(prog));
       }
@@ -225,7 +238,7 @@ export default function UploadPage() {
       if (!transcript) throw new Error("Transcription timed out");
 
       // Step 3: Generate clips from transcript
-      setSteps((prev) => prev.map((s, i) => i === 2 ? { ...s, label: "Detecting viral moments...", done: true } : s));
+      setSteps((prev) => prev.map((s, i) => i === 2 ? { ...s, label: "Transcription complete!", done: true } : i === 3 ? { ...s, label: "Detecting viral moments & generating clips..." } : s));
       setProgress(70);
 
       const genRes = await fetch("/api/generate-clips", {

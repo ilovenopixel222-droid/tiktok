@@ -69,10 +69,12 @@ export function Hero() {
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Button>
             </Link>
-            <Button variant="glass" size="xl" className="group">
-              <Play className="h-5 w-5" />
-              Watch Demo
-            </Button>
+            <Link href="/dashboard/upload">
+              <Button variant="glass" size="xl" className="group">
+                <Play className="h-5 w-5" />
+                Watch Demo
+              </Button>
+            </Link>
           </motion.div>
 
           <motion.div
