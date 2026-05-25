@@ -178,6 +178,38 @@ export default function ClipsPage() {
     setPlaybackProgress(0);
   }, []);
 
+  const getSourceBlob = useCallback(async (clip: Clip): Promise<Blob | null> => {
+    // 1. Try IndexedDB (current-source key)
+    let blob = await getAudioFile("current-source").catch(() => null);
+    if (blob) return blob;
+
+    // 2. Try IndexedDB (sourceUrl key)
+    if (clip.sourceUrl) {
+      blob = await getAudioFile(clip.sourceUrl).catch(() => null);
+      if (blob) return blob;
+    }
+
+    // 3. Fallback: fetch via server proxy
+    if (clip.sourceUrl) {
+      try {
+        const res = await fetch(`/api/audio-proxy?url=${encodeURIComponent(clip.sourceUrl)}`);
+        if (res.ok) {
+          blob = await res.blob();
+          if (blob.size > 0) {
+            // Cache it in IndexedDB for future use
+            const { storeAudioFile } = await import("@/lib/audio-store");
+            await storeAudioFile("current-source", blob).catch(() => {});
+            return blob;
+          }
+        }
+      } catch {
+        // proxy fetch failed
+      }
+    }
+
+    return null;
+  }, []);
+
   const handlePreviewClip = useCallback(async (clip: Clip) => {
     if (isPlaying) {
       stopPlayback();
@@ -189,12 +221,10 @@ export default function ClipsPage() {
       return;
     }
 
+    showToast("Loading preview...");
+
     try {
-      // Try client-side: read from IndexedDB (try current-source first, then sourceUrl key)
-      let sourceBlob = await getAudioFile("current-source").catch(() => null);
-      if (!sourceBlob && clip.sourceUrl) {
-        sourceBlob = await getAudioFile(clip.sourceUrl).catch(() => null);
-      }
+      const sourceBlob = await getSourceBlob(clip);
 
       if (sourceBlob) {
         const clipBlob = await extractClipFromBlob(sourceBlob, clip.startTime, clip.endTime);
@@ -226,12 +256,12 @@ export default function ClipsPage() {
         return;
       }
 
-      showToast("Source file not found. Please re-upload to enable preview.");
+      showToast("Source file not available. Please re-upload the original file to enable preview.");
     } catch {
       showToast("Failed to preview clip");
       stopPlayback();
     }
-  }, [isPlaying, stopPlayback]);
+  }, [isPlaying, stopPlayback, getSourceBlob]);
 
   const handleDownloadClip = useCallback(async (clip: Clip) => {
     if (clip.startTime === undefined || clip.endTime === undefined) {
@@ -240,14 +270,10 @@ export default function ClipsPage() {
     }
 
     setDownloading(clip.id);
-    showToast("Generating clip...");
+    showToast("Generating clip for download...");
 
     try {
-      // Try client-side extraction from IndexedDB (current-source first, then sourceUrl key)
-      let sourceBlob = await getAudioFile("current-source").catch(() => null);
-      if (!sourceBlob && clip.sourceUrl) {
-        sourceBlob = await getAudioFile(clip.sourceUrl).catch(() => null);
-      }
+      const sourceBlob = await getSourceBlob(clip);
 
       if (sourceBlob) {
         const clipBlob = await extractClipFromBlob(sourceBlob, clip.startTime, clip.endTime);
@@ -255,22 +281,25 @@ export default function ClipsPage() {
         const a = document.createElement("a");
         a.href = url;
         a.download = `${clip.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.wav`;
+        a.style.display = "none";
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 1000);
         showToast("Clip downloaded!");
         return;
       }
 
-      showToast("Source file not found. Please re-upload the file to enable downloads.");
+      showToast("Source file not available. Please re-upload the original file to enable downloads.");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Download failed";
       showToast(`Error: ${msg}`);
     } finally {
       setDownloading(null);
     }
-  }, []);
+  }, [getSourceBlob]);
 
   // Cleanup audio on unmount or clip change
   useEffect(() => {
@@ -388,22 +417,21 @@ export default function ClipsPage() {
                       )}
                     </div>
                     <div className="mt-3 flex gap-1.5" onClick={(e) => e.stopPropagation()}>
-                      {clip.sourceUrl && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="flex-1 text-xs"
-                          onClick={() => handlePreviewClip(clip)}
-                        >
-                          {isPlaying && selectedClip?.id === clip.id ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-                          {isPlaying && selectedClip?.id === clip.id ? "Stop" : "Preview"}
-                        </Button>
-                      )}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="flex-1 text-xs"
+                        onClick={() => handlePreviewClip(clip)}
+                        disabled={clip.startTime === undefined}
+                      >
+                        {isPlaying && selectedClip?.id === clip.id ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                        {isPlaying && selectedClip?.id === clip.id ? "Stop" : "Preview"}
+                      </Button>
                       <Button
                         size="sm"
                         className="flex-1 text-xs"
                         onClick={() => handleDownloadClip(clip)}
-                        disabled={downloading === clip.id || !clip.sourceUrl}
+                        disabled={downloading === clip.id || clip.startTime === undefined}
                       >
                         {downloading === clip.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
                         {downloading === clip.id ? "..." : "Download"}
@@ -456,8 +484,8 @@ export default function ClipsPage() {
                     <Button variant="ghost" size="sm" className="text-muted" onClick={() => handleCopyTranscript(clip)}>
                       <Copy className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-muted" onClick={() => handleExportClip(clip)}>
-                      <Download className="h-3.5 w-3.5" />
+                    <Button variant="ghost" size="sm" className="text-muted" onClick={() => handleDownloadClip(clip)} disabled={downloading === clip.id}>
+                      {downloading === clip.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
                     </Button>
                     <Button variant="ghost" size="sm" className="text-muted" onClick={() => handleShareClip(clip)}>
                       <Share2 className="h-3.5 w-3.5" />
@@ -575,7 +603,7 @@ export default function ClipsPage() {
               )}
 
               {/* Audio Preview & Download */}
-              {(selectedClip.sourceUrl || selectedClip.startTime !== undefined) && (
+              {selectedClip.startTime !== undefined && (
                 <div className="mb-6 rounded-xl bg-gradient-to-r from-cyan-500/10 to-purple-500/10 border border-white/10 p-4">
                   <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                     <Volume2 className="h-4 w-4 text-cyan-400" />
@@ -610,7 +638,7 @@ export default function ClipsPage() {
                     {downloading === selectedClip.id ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Generating clip with FFmpeg...
+                        Generating clip...
                       </>
                     ) : (
                       <>
