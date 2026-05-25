@@ -57,9 +57,9 @@ export interface GeneratedClip {
   sourceUrl: string;
 }
 
-const MIN_CLIP_MS = 30000;
+const MIN_CLIP_MS = 15000;
 const MAX_CLIP_MS = 60000;
-const IDEAL_CLIP_MS = 45000;
+const IDEAL_CLIP_MS = 40000;
 const OVERLAP_THRESHOLD_MS = 10000;
 
 const PATTERNS: Array<{ keywords: string[]; type: string; weight: number }> = [
@@ -202,7 +202,7 @@ function buildClipWindow(
 
   const finalStart = words[startIdx].start;
   const finalEnd = words[endIdx].end;
-  if (finalEnd - finalStart < MIN_CLIP_MS * 0.7) return null;
+  if (finalEnd - finalStart < 10000) return null;
 
   const text = words
     .slice(startIdx, endIdx + 1)
@@ -323,24 +323,29 @@ function detectMomentsFromTranscript(
   }
 
   // Fallback: evenly-spaced highlight segments if too few candidates
-  if (candidates.length < 2 && words.length > 0) {
+  if (candidates.length < 3 && words.length > 0) {
     const totalDuration = words[words.length - 1].end - words[0].start;
-    const numSegments = Math.min(5, Math.max(2, Math.floor(totalDuration / IDEAL_CLIP_MS)));
+    const numSegments = Math.min(8, Math.max(2, Math.floor(totalDuration / IDEAL_CLIP_MS)));
     const step = Math.floor(words.length / numSegments);
     for (let i = 0; i < numSegments; i++) {
       const anchorIdx = Math.min(i * step + Math.floor(step / 2), words.length - 1);
       const clipWindow = buildClipWindow(words, anchorIdx);
       if (clipWindow) {
-        candidates.push({
-          text: clipWindow.text,
-          start: clipWindow.start,
-          end: clipWindow.end,
-          type: "Highlight",
-          confidence: 0.6,
-          keywordHits: 0,
-          sentimentIntensity: getSentimentAt(words[anchorIdx].start),
-          lengthScore: scoreLength(clipWindow.end - clipWindow.start),
-        });
+        const alreadyCovered = candidates.some(
+          (c) => Math.abs(c.start - clipWindow.start) < OVERLAP_THRESHOLD_MS,
+        );
+        if (!alreadyCovered) {
+          candidates.push({
+            text: clipWindow.text,
+            start: clipWindow.start,
+            end: clipWindow.end,
+            type: "Highlight",
+            confidence: 0.6,
+            keywordHits: 0,
+            sentimentIntensity: getSentimentAt(words[anchorIdx].start),
+            lengthScore: scoreLength(clipWindow.end - clipWindow.start),
+          });
+        }
       }
     }
   }

@@ -1,19 +1,46 @@
 import { NextRequest } from "next/server";
 import { store } from "@/lib/store";
-import { execFile } from "child_process";
-import { promisify } from "util";
 
 export const maxDuration = 60;
 
-const execFileAsync = promisify(execFile);
+function isYouTubeUrl(url: string): boolean {
+  return /(?:youtube\.com|youtu\.be)/i.test(url);
+}
 
 function isPlatformUrl(url: string): boolean {
-  return /(?:youtube\.com|youtu\.be|twitch\.tv|kick\.com|rumble\.com)/i.test(url);
+  return /(?:youtube\.com|youtu\.be|twitch\.tv|kick\.com|rumble\.com|tiktok\.com)/i.test(url);
+}
+
+async function getYouTubeAudioUrl(videoUrl: string): Promise<string> {
+  // Dynamic import to avoid bundling issues
+  const ytdl = await import("@distube/ytdl-core");
+  const info = await ytdl.getInfo(videoUrl);
+  // Prefer audio-only format for faster processing
+  const audioFormats = ytdl.filterFormats(info.formats, "audioonly");
+  if (audioFormats.length > 0) {
+    // Sort by audio bitrate descending, pick best
+    audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
+    return audioFormats[0].url;
+  }
+  // Fallback to any format with audio
+  const anyAudio = info.formats.filter((f) => f.hasAudio);
+  if (anyAudio.length > 0) {
+    return anyAudio[0].url;
+  }
+  throw new Error("No audio stream found in this video");
 }
 
 async function getDirectAudioUrl(videoUrl: string): Promise<string> {
+  if (isYouTubeUrl(videoUrl)) {
+    return getYouTubeAudioUrl(videoUrl);
+  }
+
   if (isPlatformUrl(videoUrl)) {
+    // For non-YouTube platforms, try yt-dlp as fallback (won't work on Vercel)
     try {
+      const { execFile } = await import("child_process");
+      const { promisify } = await import("util");
+      const execFileAsync = promisify(execFile);
       const { stdout } = await execFileAsync("yt-dlp", [
         "--get-url",
         "--format", "bestaudio/best",
@@ -21,26 +48,26 @@ async function getDirectAudioUrl(videoUrl: string): Promise<string> {
         "--no-check-certificates",
         videoUrl,
       ], { timeout: 30000 });
-
       const directUrl = stdout.trim().split("\n")[0];
       if (directUrl && directUrl.startsWith("http")) {
         return directUrl;
       }
     } catch {
-      // yt-dlp not available or failed
+      // yt-dlp not available
     }
 
     throw new Error(
-      "Could not extract audio from this URL. YouTube and other platforms may block server-side downloads. Please download the video and upload the file directly using the Upload tab."
+      "This platform is not yet supported for direct URL processing. Please download the video and upload the file directly using the Upload tab."
     );
   }
 
+  // Direct URL — verify it's not HTML
   const headRes = await fetch(videoUrl, { method: "HEAD" }).catch(() => null);
   if (headRes) {
     const contentType = headRes.headers.get("content-type") || "";
     if (contentType.includes("text/html")) {
       throw new Error(
-        "This URL returns a web page, not a media file. Please upload the video file directly or provide a direct link to the audio/video file."
+        "This URL returns a web page, not a media file. Please provide a direct link to the audio/video file, or use the Upload tab."
       );
     }
   }
@@ -82,10 +109,11 @@ export async function POST(request: NextRequest) {
   store.addVideo({
     id: videoId,
     title: title || `Video ${new Date().toLocaleDateString()}`,
-    source: videoUrl.includes("youtube") ? "YouTube"
+    source: videoUrl.includes("youtube") || videoUrl.includes("youtu.be") ? "YouTube"
       : videoUrl.includes("twitch") ? "Twitch"
       : videoUrl.includes("kick") ? "Kick"
       : videoUrl.includes("rumble") ? "Rumble"
+      : videoUrl.includes("tiktok") ? "TikTok"
       : "Upload",
     duration: "Processing...",
     size: "Calculating...",

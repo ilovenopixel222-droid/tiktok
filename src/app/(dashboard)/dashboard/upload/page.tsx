@@ -21,6 +21,7 @@ const platforms = [
   { name: "Twitch", icon: MonitorPlay, color: "from-purple-500 to-purple-600", placeholder: "https://twitch.tv/videos/..." },
   { name: "Kick", icon: Monitor, color: "from-green-500 to-green-600", placeholder: "https://kick.com/video/..." },
   { name: "Rumble", icon: Radio, color: "from-emerald-500 to-emerald-600", placeholder: "https://rumble.com/..." },
+  { name: "TikTok", icon: FileVideo, color: "from-pink-500 to-rose-600", placeholder: "https://tiktok.com/@user/video/..." },
 ];
 
 const clipSettings = [

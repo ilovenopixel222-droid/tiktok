@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["ffmpeg-static"],
+  serverExternalPackages: ["ffmpeg-static", "@distube/ytdl-core"],
   outputFileTracingIncludes: {
     "/api/clip-extract": ["node_modules/ffmpeg-static/ffmpeg"],
   },
